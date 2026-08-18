@@ -1,0 +1,79 @@
+{
+  "name": "tasks-sidebar",
+  "displayName": "Tasks Sidebar",
+  "description": "A fresh, visual sidebar for running and understanding Visual Studio Code tasks.",
+  "version": "0.0.5",
+  "publisher": "local",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ClemensSchmitt/tasks-sidebar.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:tasksSidebar.view"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tasksSidebar",
+          "title": "Tasks",
+          "icon": "./resources/tasks.svg"
+        }
+      ]
+    },
+    "views": {
+      "tasksSidebar": [
+        {
+          "id": "tasksSidebar.view",
+          "name": "Task board",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "tasksSidebar.refresh",
+        "title": "Tasks: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "tasksSidebar.openTasksJson",
+        "title": "Tasks: Open tasks.json",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "tasksSidebar.toggleExternalTasks",
+        "title": "Tasks: Toggle external task providers"
+      }
+    ]
+  },
+  "configuration": {
+    "title": "Tasks Sidebar",
+    "properties": {
+      "tasksSidebar.includeExternalTasks": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include npm, extension and other external task providers in the sidebar. By default only tasks from the workspace .vscode/tasks.json are shown."
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "check": "tsc --noEmit -p ./",
+    "package": "npm run compile && npx --yes @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.2"
+  }
+}
