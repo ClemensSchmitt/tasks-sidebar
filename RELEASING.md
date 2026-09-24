@@ -5,8 +5,9 @@ patch; pass `--type minor` or `--type major` to choose a different increment.
 The GitHub Actions `Release` workflow publishes an already-created version
 tag. It checks that the requested `vX.Y.Z` tag and generated VSIX match the
 versions in both `package.json` and `package-lock.json` before it creates the
-GitHub Release. It must stop if that tag or a release for that tag already
-exists.
+GitHub Release. The workflow only publishes an already-pushed tag and never
+creates or moves tags. A tag must not be force-updated or reused. If a GitHub
+Release already exists for that tag, publishing stops without replacing it.
 
 To preview the next patch version locally without changing files:
 
@@ -27,10 +28,11 @@ only the version fields and does not publish, create a tag, or create a
 release.
 
 After the version bump, run tests, commit and push the version change, then
-create and push its matching `vX.Y.Z` tag. Run the `Release` workflow for that
-tag to package the VSIX, verify tag/manifest/VSIX consistency, create the
-release, and upload `tasks-sidebar-X.Y.Z.vsix`. For a local verification of a
-packaged artifact:
+create and push its matching `vX.Y.Z` tag. If the tag already exists, stop;
+do not force-update it. Run the `Release` workflow for that tag to package
+the VSIX, verify tag/manifest/VSIX consistency, create the release, and upload
+`tasks-sidebar-X.Y.Z.vsix`. The workflow rejects an existing release and
+never overwrites one. For a local verification of a packaged artifact:
 
 ```sh
 npm run release:version -- verify --tag v0.0.6 --vsix ./tasks-sidebar-0.0.6.vsix
