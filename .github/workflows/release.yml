@@ -1,18 +1,25 @@
-name: Validate and release VSIX
+name: Release
 
 on:
   push:
-    branches: ["**"]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing version tag to validate and publish (for example v1.2.3)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+
 jobs:
   compatibility:
-    name: ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
+    name: Release validation / ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -31,8 +38,18 @@ jobs:
           - os: windows-latest
             vscode_version: stable
     steps:
-      - name: Checkout
+      - name: Validate release tag
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected an existing stable version tag such as v1.2.3; received '$RELEASE_TAG'." >&2
+            exit 1
+          fi
+
+      - name: Checkout release tag
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -61,13 +78,17 @@ jobs:
           VSCODE_VERSION: ${{ matrix.vscode_version }}
         run: npm run test:extension
 
-  build:
-    name: Build VSIX
+  package:
+    name: Package and verify VSIX
     needs: compatibility
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -78,32 +99,84 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build VSIX
-        run: npm run package
+      - name: Build and verify VSIX
+        shell: bash
+        run: |
+          npm run package
+          shopt -s nullglob
+          vsix_files=(./*.vsix)
+          if [[ ${#vsix_files[@]} -ne 1 ]]; then
+            echo "Expected exactly one VSIX, found ${#vsix_files[@]}." >&2
+            exit 1
+          fi
+          npm run release:version -- verify --tag "$RELEASE_TAG" --vsix "${vsix_files[0]}"
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [compatibility, build]
+      - name: Record tested source commit
+        id: source
+        shell: bash
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Tag: $RELEASE_TAG"
+            echo "Commit: $source_sha"
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > release-provenance.txt
+
+      - name: Upload verified release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-vsix
+          path: |
+            *.vsix
+            release-provenance.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: package
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: npm
+          ref: ${{ env.RELEASE_REF }}
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Confirm release tag still points at the tested commit
+        env:
+          TESTED_SOURCE_SHA: ${{ needs.package.outputs.source_sha }}
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          if [ "$actual_sha" != "$TESTED_SOURCE_SHA" ]; then
+            echo "Release tag now points to $actual_sha; package was tested from $TESTED_SOURCE_SHA." >&2
+            exit 1
+          fi
 
-      - name: Build VSIX
-        run: npm run compile && npx --yes @vscode/vsce package --no-dependencies
+      - name: Download verified release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-vsix
 
-      - name: Create GitHub release
+      - name: Refuse to overwrite an existing release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" ./*.vsix --repo "${GITHUB_REPOSITORY}" --title "Tasks Sidebar ${GITHUB_REF_NAME}" --generate-notes
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A GitHub Release for $RELEASE_TAG already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+      - name: Publish verified VSIX
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SOURCE_SHA: ${{ needs.package.outputs.source_sha }}
+        run: |
+          gh release create "$RELEASE_TAG" ./*.vsix release-provenance.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Tasks Sidebar $RELEASE_TAG" \
+            --notes "Verified source commit: $TESTED_SOURCE_SHA" \
+            --verify-tag
