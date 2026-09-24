@@ -9,6 +9,11 @@ on:
         description: Existing version tag to validate and publish (for example v1.2.3)
         required: true
         type: string
+      publish_release:
+        description: Publish the verified artifact as a GitHub Release
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -159,6 +164,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
     needs: [resolve, package]
     runs-on: ubuntu-latest
     permissions:
