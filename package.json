@@ -12,6 +12,9 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "extensionKind": [
+    "workspace"
+  ],
   "categories": [
     "Other"
   ],
@@ -50,6 +53,11 @@
         "icon": "$(edit)"
       },
       {
+        "command": "tasksSidebar.createTask",
+        "title": "Tasks: Create task",
+        "icon": "$(add)"
+      },
+      {
         "command": "tasksSidebar.toggleExternalTasks",
         "title": "Tasks: Toggle external task providers"
       }
@@ -69,11 +77,14 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "check": "tsc --noEmit -p ./",
+    "test": "npm run compile && node --test test/*.test.js",
+    "test:extension": "npm run compile && node test/integration/run.js",
     "package": "npm run compile && npx --yes @vscode/vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
     "typescript": "^5.4.2"
   }
 }

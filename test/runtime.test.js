@@ -1,0 +1,358 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, filterAndSortTaskSnapshots, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, mergeProgressElapsed, observationKey, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldFinalizeTask, shouldScheduleStaleCheck } = require('../out/runtime.js');
+
+const observation = (overrides = {}) => ({
+  stopRequested: false,
+  taskEndSeen: false,
+  processEndSeen: false,
+  graceExpired: false,
+  stale: false,
+  ...overrides
+});
+
+test('exit code 0 is success', () => {
+  assert.equal(resolveTaskOutcome(observation({ taskEndSeen: true, processEndSeen: true, exitCode: 0 })), 'success');
+});
+
+test('non-zero exit code is failure', () => {
+  assert.equal(resolveTaskOutcome(observation({ taskEndSeen: true, processEndSeen: true, exitCode: 2 })), 'failed');
+});
+
+test('missing exit code is unknown, never success', () => {
+  assert.equal(resolveTaskOutcome(observation({ taskEndSeen: true, processEndSeen: true })), 'unknown');
+});
+
+test('task end without process end is unknown', () => {
+  assert.equal(resolveTaskOutcome(observation({ taskEndSeen: true })), 'unknown');
+});
+
+test('a stop request without confirmation cannot become success', () => {
+  assert.equal(resolveTaskOutcome(observation({ stopRequested: true, processEndSeen: true, exitCode: 0, stale: true })), 'stale');
+});
+
+test('a confirmed stopped task is cancelled', () => {
+  assert.equal(resolveTaskOutcome(observation({ stopRequested: true, taskEndSeen: true, processEndSeen: true, exitCode: 0 })), 'cancelled');
+});
+
+test('duplicate starts are rejected deterministically', () => {
+  assert.equal(shouldAllowStart(true, false), false);
+  assert.equal(shouldAllowStart(false, true), false);
+  assert.equal(shouldAllowStart(false, false), true);
+});
+
+test('task board query, filters and sort use stable tie breakers', () => {
+  const tasks = [
+    { id: 'b', name: 'Build', source: 'Workspace', group: 'build', workspaceFolderName: 'api', isRunning: true, elapsedMs: 2000 },
+    { id: 'a', name: 'Build', source: 'npm', group: 'build', workspaceFolderName: 'web', isRunning: false, elapsedMs: 0, lastOutcome: 'success' },
+    { id: 'c', name: 'Lint', source: 'Workspace', group: 'test', workspaceFolderName: 'api', isRunning: false, elapsedMs: 0, lastOutcome: 'failed' }
+  ];
+  assert.deepEqual(filterAndSortTaskSnapshots(tasks, 'npm', 'all', 'name').map(task => task.id), ['a']);
+  assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'running', 'name').map(task => task.id), ['b']);
+  assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'failed', 'name').map(task => task.id), ['c']);
+  assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'external', 'name').map(task => task.id), ['a']);
+  assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'all', 'status').map(task => task.id), ['b', 'c', 'a']);
+});
+
+test('task board search covers provider, group and workspace folder', () => {
+  const task = { id: 'x', name: 'Compile', source: 'npm', group: 'build', workspaceFolderName: 'frontend', isRunning: false, elapsedMs: 0 };
+  assert.equal(filterAndSortTaskSnapshots([task], 'npm', 'all').length, 1);
+  assert.equal(filterAndSortTaskSnapshots([task], 'build', 'all').length, 1);
+  assert.equal(filterAndSortTaskSnapshots([task], 'frontend', 'all').length, 1);
+});
+
+test('background tasks do not get a false stale timeout', () => {
+  assert.equal(shouldScheduleStaleCheck(true, false, false), false);
+  assert.equal(shouldScheduleStaleCheck(true, true, false), true);
+  assert.equal(shouldScheduleStaleCheck(false, false, false), true);
+  assert.equal(shouldScheduleStaleCheck(true, false, true), false);
+  assert.equal(shouldScheduleStaleCheck(true, false, false, true), true);
+});
+
+test('lost end observation is stale', () => {
+  assert.equal(resolveTaskOutcome(observation({ stale: true })), 'stale');
+  assert.equal(resolveTaskOutcome(observation({ stale: true, taskEndSeen: true, processEndSeen: true, exitCode: 0 })), 'stale');
+});
+
+test('event order does not change finalization eligibility', () => {
+  assert.equal(shouldFinalizeTask(observation({ taskEndSeen: true, processEndSeen: true })), true);
+  assert.equal(shouldFinalizeTask(observation({ taskEndSeen: true, graceExpired: true })), true);
+  assert.equal(shouldFinalizeTask(observation({ processEndSeen: true })), false);
+});
+
+test('execution event reducer converges regardless of process/task end order', () => {
+  const initial = { stopRequested: false, taskEndSeen: false, processEndSeen: false, graceExpired: false, stale: false, lifecycle: 'running' };
+  const processFirst = applyTaskExecutionEvent(
+    applyTaskExecutionEvent(initial, { type: 'process-end', exitCode: 0 }),
+    { type: 'task-end' }
+  );
+  const taskFirst = applyTaskExecutionEvent(
+    applyTaskExecutionEvent(initial, { type: 'task-end' }),
+    { type: 'process-end', exitCode: 0 }
+  );
+  assert.deepEqual(
+    { taskEndSeen: processFirst.taskEndSeen, processEndSeen: processFirst.processEndSeen, exitCode: processFirst.exitCode, lifecycle: processFirst.lifecycle },
+    { taskEndSeen: true, processEndSeen: true, exitCode: 0, lifecycle: 'awaiting-task-end' }
+  );
+  assert.deepEqual(
+    { taskEndSeen: taskFirst.taskEndSeen, processEndSeen: taskFirst.processEndSeen, exitCode: taskFirst.exitCode, lifecycle: taskFirst.lifecycle },
+    { taskEndSeen: true, processEndSeen: true, exitCode: 0, lifecycle: 'awaiting-task-end' }
+  );
+  assert.equal(resolveTaskOutcome(processFirst), 'success');
+  assert.equal(resolveTaskOutcome(taskFirst), 'success');
+});
+
+test('execution event reducer keeps stop and stale outcomes conservative', () => {
+  const initial = { stopRequested: false, taskEndSeen: false, processEndSeen: false, graceExpired: false, stale: false, lifecycle: 'running' };
+  const stopped = applyTaskExecutionEvent(
+    applyTaskExecutionEvent(
+      applyTaskExecutionEvent(initial, { type: 'stop-requested' }),
+      { type: 'process-end', exitCode: 0 }
+    ),
+    { type: 'task-end' }
+  );
+  assert.equal(stopped.lifecycle, 'stopping');
+  assert.equal(resolveTaskOutcome(stopped), 'cancelled');
+  const stale = applyTaskExecutionEvent(initial, { type: 'stale' });
+  assert.equal(stale.lifecycle, 'stale');
+  assert.equal(resolveTaskOutcome(stale), 'stale');
+});
+
+test('refresh revisions are ordered', () => {
+  assert.equal(isCurrentRefresh(4, 4), true);
+  assert.equal(isCurrentRefresh(3, 4), false);
+});
+
+test('renaming creates a distinct logical identity for an orphanable run', () => {
+  const definition = { type: 'shell', command: 'echo hello' };
+  assert.notEqual(
+    createLogicalTaskId('Workspace', 'old name', 'file:///repo', definition),
+    createLogicalTaskId('Workspace', 'new name', 'file:///repo', definition)
+  );
+  assert.notEqual(
+    createLogicalTaskId('Workspace', 'same', 'file:///repo', definition),
+    createLogicalTaskId('Workspace', 'same', 'file:///repo', { ...definition, command: 'echo goodbye' })
+  );
+});
+
+test('definition key order does not split history', () => {
+  assert.equal(
+    createLogicalTaskId('Workspace', 'task', 'file:///repo', { type: 'shell', command: 'echo', args: ['a'] }),
+    createLogicalTaskId('Workspace', 'task', 'file:///repo', { args: ['a'], command: 'echo', type: 'shell' })
+  );
+});
+
+test('legacy history IDs remain derivable for migration', () => {
+  const legacy = createLegacyTaskId('Workspace', 'old name', 'file:///repo', { type: 'shell', command: 'echo' });
+  const logical = createLogicalTaskId('Workspace', 'old name', 'file:///repo', { type: 'shell', command: 'echo' });
+  assert.notEqual(legacy, logical);
+  assert.equal(selectHistoryKey([legacy], logical, legacy), legacy);
+  assert.equal(selectHistoryKey([logical, legacy], logical, legacy), logical);
+});
+
+test('history identity survives a rename but changes with task behavior', () => {
+  const definition = { type: 'shell', command: 'echo hello' };
+  assert.equal(
+    createHistoryTaskId('Workspace', 'file:///repo', definition),
+    createHistoryTaskId('Workspace', 'file:///repo', { ...definition, label: 'renamed' })
+  );
+  assert.notEqual(
+    createHistoryTaskId('Workspace', 'file:///repo', definition),
+    createHistoryTaskId('Workspace', 'file:///repo', { ...definition, command: 'echo goodbye' })
+  );
+});
+
+test('old history keys can be found by scope and legacy definition suffix', () => {
+  const suffix = createHistoryMigrationSuffix('file:///repo', { type: 'shell', command: 'echo hello' });
+  assert.equal(selectHistoryKey(['Workspace:old name' + suffix], 'current', 'legacy', 'history', suffix), 'Workspace:old name' + suffix);
+});
+
+test('plan uses the latest successful duration and retains only recent history keys', () => {
+  assert.equal(calculatePlanDuration({ lastDurationMs: 4200, durationsMs: [4200, 3900] }), 4200);
+  assert.equal(calculatePlanDuration({ durationsMs: [3900, 4200] }), 3900);
+  assert.equal(calculatePlanDuration({ durationsMs: [] }), undefined);
+  assert.deepEqual(selectRecentHistoryKeys({
+    old: { lastUpdatedAt: 1 },
+    newest: { lastUpdatedAt: 3 },
+    middle: { lastUpdatedAt: 2 }
+  }, 2), ['newest', 'middle']);
+});
+
+test('monotonic elapsed and progress states clamp safely', () => {
+  assert.equal(calculateElapsedMs(100, 90), 0);
+  assert.equal(calculateElapsedMs(100, 150), 50);
+  assert.equal(calculateProgressPercent(500, 1000, true), 50);
+  assert.equal(calculateProgressPercent(5000, 1000, true), 100);
+  assert.equal(calculateProgressState({ isRunning: true, elapsedMs: 500, plannedMs: 1000 }), 'measured');
+  assert.equal(calculateProgressState({ isRunning: true, elapsedMs: 1500, plannedMs: 1000 }), 'overtime');
+  assert.equal(calculateProgressState({ isRunning: true, elapsedMs: 0 }), 'unknown');
+  assert.equal(calculateProgressState({ isRunning: false, elapsedMs: 0, lastOutcome: 'success' }), 'completed');
+  assert.equal(calculateProgressState({ isRunning: false, elapsedMs: 0, lastOutcome: 'failed' }), 'failed');
+  assert.equal(calculateProgressState({ isRunning: false, elapsedMs: 0, lastOutcome: 'cancelled' }), 'cancelled');
+  assert.equal(calculateProgressState({ isRunning: false, elapsedMs: 0, lastOutcome: 'stale' }), 'stale');
+});
+
+test('sleep and resume count as elapsed monotonic time by policy', () => {
+  assert.equal(calculateElapsedMs(100, 2100), 2000);
+  assert.equal(calculateElapsedMs(2100, 100), 0);
+});
+
+test('frontend progress convergence never moves backwards', () => {
+  assert.equal(mergeProgressElapsed(900, 800, 850), 900);
+  assert.equal(mergeProgressElapsed(900, 1200, 1100), 1200);
+  assert.equal(mergeProgressElapsed(1200, 1000, 1300), 1300);
+});
+
+test('only fresh confirmed success contributes to the plan', () => {
+  assert.equal(shouldCountSuccessfulRun('success', false), true);
+  assert.equal(shouldCountSuccessfulRun('success', true), false);
+  assert.equal(shouldCountSuccessfulRun('failed', false), false);
+  assert.equal(shouldCountSuccessfulRun('cancelled', false), false);
+  assert.equal(shouldCountSuccessfulRun('unknown', false), false);
+  assert.equal(shouldCountSuccessfulRun('stale', false), false);
+});
+
+test('discovery failures have distinct user-facing categories', () => {
+  assert.equal(classifyDiscoveryFailure({ hasWorkspace: false }), 'empty-workspace');
+  assert.equal(classifyDiscoveryFailure({ hasWorkspace: true, jsonValid: false }), 'invalid-json');
+  assert.equal(classifyDiscoveryFailure({ hasWorkspace: true, permissionDenied: true }), 'permission');
+  assert.equal(classifyDiscoveryFailure({ hasWorkspace: true, providerFailed: true }), 'provider');
+});
+
+test('tasks.json JSONC comments and trailing commas are accepted', () => {
+  assert.deepEqual(parseJsonc('{\n  // comment\n  \"tasks\": [{\"label\":\"build\",}],\n}'), {
+    tasks: [{ label: 'build' }]
+  });
+});
+
+test('provider fallback uses task types explicitly declared in tasks.json', () => {
+  assert.deepEqual(parseTaskProviderTypes(`{
+    "tasks": [
+      { "label": "shell", "type": "shell", "command": "echo" },
+      { "label": "npm", "type": "npm", "script": "build" },
+      { "label": "again", "type": "shell", "command": "echo" }
+    ]
+  }`), ['shell', 'npm']);
+  assert.deepEqual(parseTaskProviderTypes('{ invalid json'), []);
+  assert.deepEqual(parseTaskProviderTypes('{"tasks":[]}'), []);
+});
+
+test('JSONC trailing comma removal preserves string contents', () => {
+  assert.deepEqual(parseJsonc('{"command":"echo \\",} ]",}'), {
+    command: 'echo ",} ]'
+  });
+});
+
+test('dependency specs normalize labels, lists and execution order', () => {
+  assert.deepEqual(parseTaskDependencySpecs({
+    tasks: [
+      { label: 'build', dependsOn: 'compile', dependsOrder: 'sequence' },
+      { label: 'release', dependsOn: ['build', 'test'] }
+    ]
+  }), {
+    build: { label: 'build', dependsOn: ['compile'], dependsOrder: 'sequence' },
+    release: { label: 'release', dependsOn: ['build', 'test'], dependsOrder: 'parallel' }
+  });
+});
+
+test('invalid dependency documents do not produce task definitions', () => {
+  assert.deepEqual(parseTaskDependencySpecs({ version: '2.0.0' }), {});
+  assert.deepEqual(parseTaskDependencySpecs({ tasks: [null, {}, { label: 42 }] }), {});
+});
+
+test('workspace folder URI is part of logical task identity', () => {
+  const definition = { type: 'shell', command: 'echo hello' };
+  assert.notEqual(
+    createLogicalTaskId('Workspace', 'build', 'file:///repo-a', definition),
+    createLogicalTaskId('Workspace', 'build', 'file:///repo-b', definition)
+  );
+});
+
+test('removed workspace folders are hidden without affecting another root', () => {
+  assert.equal(isWorkspaceFolderVisible('file:///repo-a', ['file:///repo-b'], false), false);
+  assert.equal(isWorkspaceFolderVisible('file:///repo-b', ['file:///repo-b'], false), true);
+  assert.equal(isWorkspaceFolderVisible(undefined, ['file:///repo-b'], false), false);
+});
+
+test('VS Code compatibility gate compares semantic versions', () => {
+  assert.equal(isSupportedVSCodeVersion('1.85.0'), true);
+  assert.equal(isSupportedVSCodeVersion('1.90.1'), true);
+  assert.equal(isSupportedVSCodeVersion('1.84.9'), false);
+  assert.equal(isSupportedVSCodeVersion('not-a-version'), false);
+});
+
+test('reload keeps a still-live observation and matches parallel executions one by one', () => {
+  const observations = [
+    { logicalId: 'build', workspaceFolderUri: 'file:///repo', observedAt: 100 },
+    { logicalId: 'build', workspaceFolderUri: 'file:///repo', observedAt: 101 }
+  ];
+  const result = reconcilePersistedObservations(
+    observations,
+    [observationKey('build', 'file:///repo')],
+    105,
+    10
+  );
+  assert.deepEqual(result.pending, [observations[1]]);
+  assert.deepEqual(result.unknown, []);
+});
+
+test('reload before end event becomes explicitly unknown after the grace window', () => {
+  const observationRecord = { logicalId: 'build', observedAt: 100 };
+  const result = reconcilePersistedObservations([observationRecord], [], 110, 10);
+  assert.deepEqual(result.pending, []);
+  assert.deepEqual(result.unknown, [observationRecord]);
+});
+
+test('reload before a start event remains pending until the observation window expires', () => {
+  const observationRecord = { logicalId: 'build', observedAt: 100 };
+  const result = reconcilePersistedObservations([observationRecord], [], 109, 10);
+  assert.deepEqual(result.pending, [observationRecord]);
+  assert.deepEqual(result.unknown, []);
+});
+
+test('dependency aggregation exposes success, failure, cancellation and partial completion', () => {
+  assert.deepEqual(resolveDependencyState(['compile'], ['compile-id'], [
+    { name: 'compile', isRunning: false, lastOutcome: 'success' }
+  ]), { state: 'success' });
+  assert.deepEqual(resolveDependencyState(['compile'], ['compile-id'], [
+    { name: 'compile', isRunning: false, lastOutcome: 'failed' }
+  ]), { state: 'failed', failure: 'compile' });
+  assert.deepEqual(resolveDependencyState(['compile'], ['compile-id'], [
+    { name: 'compile', isRunning: false, lastOutcome: 'cancelled' }
+  ]), { state: 'cancelled', failure: 'compile' });
+  assert.deepEqual(resolveDependencyState(['compile', 'test'], ['compile-id', 'test-id'], [
+    { name: 'compile', isRunning: true },
+    { name: 'test', isRunning: false, lastOutcome: 'success' }
+  ]), { state: 'running' });
+});
+
+test('sequence dependencies resolve in declared order', () => {
+  assert.deepEqual(resolveDependencyState(['compile', 'test'], ['compile-id', 'test-id'], [
+    { name: 'compile', isRunning: true },
+    { name: 'test', isRunning: false, lastOutcome: 'success' }
+  ], 'sequence'), { state: 'running' });
+  assert.deepEqual(resolveDependencyState(['compile', 'test'], ['compile-id', 'test-id'], [
+    { name: 'compile', isRunning: false, lastOutcome: 'success' }
+  ], 'sequence'), { state: 'unresolved', failure: 'test' });
+  assert.deepEqual(resolveDependencyState(['compile', 'test'], ['compile-id', 'test-id'], [
+    { name: 'compile', isRunning: false, lastOutcome: 'success' },
+    { name: 'test', isRunning: false, lastOutcome: 'failed' }
+  ], 'sequence'), { state: 'failed', failure: 'test' });
+  assert.deepEqual(resolveDependencyState(['compile', 'test'], ['compile-id', 'test-id'], [
+    { name: 'compile', isRunning: false, lastOutcome: 'success' },
+    { name: 'test', isRunning: false, lastOutcome: 'success' }
+  ], 'sequence'), { state: 'success' });
+});
+
+test('a running child supersedes its previous historical failure', () => {
+  assert.deepEqual(resolveDependencyState(['compile'], ['compile-id'], [
+    { name: 'compile', isRunning: true, lastOutcome: 'failed' }
+  ]), { state: 'running' });
+});
+
+test('out-of-order or missing child events remain unresolved or unknown', () => {
+  assert.deepEqual(resolveDependencyState(['compile'], [], []), { state: 'unresolved', failure: 'compile' });
+  assert.deepEqual(resolveDependencyState(['compile'], ['compile-id'], [
+    { name: 'compile', isRunning: false, lastOutcome: 'unknown' }
+  ]), { state: 'unknown', failure: 'compile' });
+});
