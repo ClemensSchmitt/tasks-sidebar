@@ -137,7 +137,7 @@ Die CI in `.github/workflows/release.yml` prüft aktuell:
 - Type-Check, Runtime-Tests und Extension-Host-Tests.
 - Bei `v*`-Tags wird nach erfolgreicher Kompatibilitätsprüfung ein VSIX gebaut und als GitHub Release veröffentlicht.
 
-Die aktuelle lokale Umgebung hatte Node `v22.14.0` und npm `11.1.0`. Die CI-Konfiguration verwendet Node 20.
+Die aktuelle lokale Umgebung hatte Node `v22.14.0` und npm `11.1.0`. Die CI-Konfiguration verwendet Node 24; das passt zur Mindestanforderung von `@vscode/test-electron`.
 
 ## Bekannte Einschränkungen und offene Punkte
 
@@ -160,4 +160,3 @@ Die aktuelle lokale Umgebung hatte Node `v22.14.0` und npm `11.1.0`. Die CI-Konf
 ## Startprompt für die Cloud-Fortsetzung
 
 > Du übernimmst das Repository `C:\Users\cleme\OneDrive\Dokumente\ChatGPT\TasksSidebar`, ein VS-Code-Projekt namens „Tasks Sidebar“. Es handelt sich um eine visuelle Task-Board-Erweiterung für `.vscode/tasks.json`. Der Branch ist `main`, der letzte gemeinsame Commit ist `7fc76d7`, Release-Tag `v0.0.5`. Der Arbeitsstand enthält absichtlich umfangreiche uncommitted Änderungen plus neue Dateien: `src/runtime.ts` und `test/`. Diese Änderungen nicht verwerfen. Lies zuerst `CLOUD_PROJECT_HANDOFF.md`, `README.md`, `src/extension.ts`, `src/runtime.ts` und die Tests. Prüfe danach mit `npm run check`, `npm test` und `npm run test:extension`. Ziel ist, die bestehende Runtime-/Lifecycle-/History-/Dependency-Logik sicher weiterzuentwickeln, ohne die konservative Semantik für unknown/stale/cancelled oder die getrennte Identität paralleler Ausführungen zu verschlechtern. Offene Themen sind vor allem manuelle Accessibility-Prüfung, Remote-Host-Validierung, englische-only UI sowie Release-/Versionsvorbereitung.
-
