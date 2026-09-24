@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const zlib = require('node:zlib');
 const { bump, bumpVersion, readManifests, verify, verifyVsix } = require('../scripts/release');
 
 function fixtureDirectory(t, version = '0.0.5') {
@@ -17,21 +18,22 @@ function fixtureDirectory(t, version = '0.0.5') {
   return directory;
 }
 
-function makeStoredZip(entries) {
+function makeStoredZip(entries, method = 0) {
   const localParts = [];
   const centralParts = [];
   let offset = 0;
   for (const [name, body] of Object.entries(entries)) {
     const nameBytes = Buffer.from(name);
-    const data = Buffer.from(body);
+    const uncompressed = Buffer.from(body);
+    const data = method === 8 ? zlib.deflateRawSync(uncompressed) : uncompressed;
     const local = Buffer.alloc(30 + nameBytes.length);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(0, 6);
-    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(method, 8);
     local.writeUInt32LE(0, 14);
     local.writeUInt32LE(data.length, 18);
-    local.writeUInt32LE(data.length, 22);
+    local.writeUInt32LE(uncompressed.length, 22);
     local.writeUInt16LE(nameBytes.length, 26);
     nameBytes.copy(local, 30);
     localParts.push(local, data);
@@ -41,10 +43,10 @@ function makeStoredZip(entries) {
     central.writeUInt16LE(20, 4);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(0, 8);
-    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(method, 10);
     central.writeUInt32LE(0, 16);
     central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(data.length, 24);
+    central.writeUInt32LE(uncompressed.length, 24);
     central.writeUInt16LE(nameBytes.length, 28);
     central.writeUInt32LE(0, 38);
     central.writeUInt32LE(offset, 42);
@@ -107,4 +109,16 @@ test('verification requires matching tag, manifest, lockfile and VSIX metadata',
   assert.throws(() => verify(directory, 'v0.0.6', vsix), /does not match manifest/);
   fs.writeFileSync(vsix, makeVsix('0.0.6'));
   assert.throws(() => verifyVsix(vsix, '0.0.5'), /VSIX version mismatch/);
+});
+
+test('VSIX verifier reads deflated ZIP entries and rejects malformed archives', (t) => {
+  const directory = fixtureDirectory(t);
+  const vsix = path.join(directory, 'fixture.vsix');
+  fs.writeFileSync(vsix, makeStoredZip({
+    'extension/package.json': JSON.stringify({ version: '0.0.5' }),
+    'extension.vsixmanifest': '<PackageManifest><Identity Version="0.0.5" /></PackageManifest>',
+  }, 8));
+  assert.doesNotThrow(() => verifyVsix(vsix, '0.0.5'));
+  fs.writeFileSync(vsix, Buffer.from('not a zip'));
+  assert.throws(() => verifyVsix(vsix, '0.0.5'), /valid ZIP archive/);
 });
