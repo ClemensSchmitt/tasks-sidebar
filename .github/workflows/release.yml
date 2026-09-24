@@ -15,11 +15,36 @@ permissions:
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
-  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+  RELEASE_REF: refs/tags/${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
 
 jobs:
+  resolve:
+    name: Resolve immutable release commit
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+            echo "Expected an existing version tag such as v1.2.3; received '$RELEASE_TAG'." >&2
+            exit 1
+          fi
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD^{commit})" >> "$GITHUB_OUTPUT"
+
   compatibility:
     name: Release validation / ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
+    needs: resolve
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -38,18 +63,10 @@ jobs:
           - os: windows-latest
             vscode_version: stable
     steps:
-      - name: Validate release tag
-        shell: bash
-        run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Expected an existing stable version tag such as v1.2.3; received '$RELEASE_TAG'." >&2
-            exit 1
-          fi
-
-      - name: Checkout release tag
+      - name: Checkout tested release commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_REF }}
+          ref: ${{ needs.resolve.outputs.source_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -80,15 +97,15 @@ jobs:
 
   package:
     name: Package and verify VSIX
-    needs: compatibility
+    needs: [resolve, compatibility]
     runs-on: ubuntu-latest
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
     steps:
-      - name: Checkout release tag
+      - name: Checkout tested release commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_REF }}
+          ref: ${{ needs.resolve.outputs.source_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -113,9 +130,15 @@ jobs:
 
       - name: Record tested source commit
         id: source
+        env:
+          RESOLVED_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
         shell: bash
         run: |
-          source_sha="$(git rev-parse HEAD)"
+          source_sha="$(git rev-parse HEAD^{commit})"
+          if [[ "$source_sha" != "$RESOLVED_SOURCE_SHA" ]]; then
+            echo "Package checkout $source_sha differs from tested source $RESOLVED_SOURCE_SHA." >&2
+            exit 1
+          fi
           echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
           {
             echo "Repository: $GITHUB_REPOSITORY"
@@ -136,25 +159,16 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: package
+    needs: [resolve, package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout release tag
+      - name: Checkout tested release commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_REF }}
-
-      - name: Confirm release tag still points at the tested commit
-        env:
-          TESTED_SOURCE_SHA: ${{ needs.package.outputs.source_sha }}
-        run: |
-          actual_sha="$(git rev-parse HEAD)"
-          if [ "$actual_sha" != "$TESTED_SOURCE_SHA" ]; then
-            echo "Release tag now points to $actual_sha; package was tested from $TESTED_SOURCE_SHA." >&2
-            exit 1
-          fi
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 0
 
       - name: Download verified release artifact
         uses: actions/download-artifact@v4
@@ -164,19 +178,39 @@ jobs:
       - name: Refuse to overwrite an existing release
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          set +e
+          response="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>&1)"
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then
             echo "A GitHub Release for $RELEASE_TAG already exists; refusing to overwrite it." >&2
             exit 1
           fi
+          if ! grep -Eq '^HTTP/[0-9.]+ 404 ' <<< "$response"; then
+            echo "Could not determine whether release $RELEASE_TAG exists; refusing to publish." >&2
+            echo "$response" >&2
+            exit 1
+          fi
 
-      - name: Publish verified VSIX
+      - name: Confirm tag is unchanged and publish verified VSIX
         env:
           GH_TOKEN: ${{ github.token }}
-          TESTED_SOURCE_SHA: ${{ needs.package.outputs.source_sha }}
+          TESTED_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        shell: bash
         run: |
-          gh release create "$RELEASE_TAG" ./*.vsix release-provenance.txt \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Tasks Sidebar $RELEASE_TAG" \
-            --notes "Verified source commit: $TESTED_SOURCE_SHA" \
-            --verify-tag
+          checkout_sha="$(git rev-parse HEAD^{commit})"
+          if [[ "$checkout_sha" != "$TESTED_SOURCE_SHA" ]]; then
+            echo "Publish checkout $checkout_sha differs from tested source $TESTED_SOURCE_SHA." >&2
+            exit 1
+          fi
+
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          current_tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$current_tag_sha" != "$TESTED_SOURCE_SHA" ]]; then
+            echo "Tag $RELEASE_TAG now points to $current_tag_sha; tests and VSIX used $TESTED_SOURCE_SHA." >&2
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" ./*.vsix release-provenance.txt --repo "$GITHUB_REPOSITORY" --title "Tasks Sidebar $RELEASE_TAG" --notes "Verified source commit: $TESTED_SOURCE_SHA" --verify-tag
