@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const zlib = require('node:zlib');
 const { bump, bumpVersion, readManifests, verify, verifyVsix } = require('../scripts/release');
@@ -83,6 +84,18 @@ test('dry run calculates a patch release without changing either manifest', (t) 
   const before = fs.readFileSync(path.join(directory, 'package.json'), 'utf8');
   assert.deepEqual(bump(directory, 'patch', true), { currentVersion: '0.0.5', nextVersion: '0.0.6', dryRun: true });
   assert.equal(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'), before);
+  assert.equal(readManifests(directory).version, '0.0.5');
+});
+
+test('CLI dry-run demonstrates the default patch release without writing files', (t) => {
+  const directory = fixtureDirectory(t);
+  const scripts = path.join(directory, 'scripts');
+  fs.mkdirSync(scripts);
+  const script = path.join(scripts, 'release.js');
+  fs.copyFileSync(path.join(__dirname, '../scripts/release.js'), script);
+  const result = spawnSync(process.execPath, [script, 'bump', '--dry-run'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { currentVersion: '0.0.5', nextVersion: '0.0.6', dryRun: true });
   assert.equal(readManifests(directory).version, '0.0.5');
 });
 
