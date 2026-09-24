@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            vscode_version: "1.85.0"
+          - os: ubuntu-latest
+            vscode_version: stable
+          - os: macos-latest
+            vscode_version: "1.85.0"
+          - os: macos-latest
+            vscode_version: stable
+          - os: windows-latest
+            vscode_version: "1.85.0"
+          - os: windows-latest
+            vscode_version: stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Runtime tests
+        run: npm test
+
+      - name: VS Code extension-host tests (Linux)
+        if: runner.os == 'Linux'
+        env:
+          VSCODE_VERSION: ${{ matrix.vscode_version }}
+        run: xvfb-run -a npm run test:extension
+
+      - name: VS Code extension-host tests
+        if: runner.os != 'Linux'
+        env:
+          VSCODE_VERSION: ${{ matrix.vscode_version }}
+        run: npm run test:extension
