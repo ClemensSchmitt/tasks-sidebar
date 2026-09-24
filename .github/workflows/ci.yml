@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   compatibility:
-    name: ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
+    name: CI / ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
