@@ -29,10 +29,11 @@ release.
 
 After the version bump, run tests, commit and push the version change, then
 create and push its matching `vX.Y.Z` tag. If the tag already exists, stop;
-do not force-update it. Run the `Release` workflow for that tag to package
-the VSIX, verify tag/manifest/VSIX consistency, create the release, and upload
-`tasks-sidebar-X.Y.Z.vsix`. The workflow rejects an existing release and
-never overwrites one. For a local verification of a packaged artifact:
+do not force-update it. The tag push runs validation and packaging without
+publishing. To publish, dispatch the `Release` workflow for that same tag and
+set `publish_release` to true. Leave it false for a validation/package dry run.
+The workflow rejects an existing release and never overwrites one. For a local
+verification of a packaged artifact:
 
 ```sh
 npm run release:version -- verify --tag v0.0.6 --vsix ./tasks-sidebar-0.0.6.vsix
