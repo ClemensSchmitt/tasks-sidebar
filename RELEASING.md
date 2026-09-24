@@ -2,8 +2,8 @@
 
 The extension uses stable `X.Y.Z` versions. The default version increment is
 patch; pass `--type minor` or `--type major` to choose a different increment.
-The GitHub Actions `Release` workflow publishes an already-created version
-tag. It checks that the requested `vX.Y.Z` tag and generated VSIX match the
+The GitHub Actions `Release` workflow validates and packages an already-created
+version tag. Publishing requires an explicit workflow dispatch. It checks that the requested `vX.Y.Z` tag and generated VSIX match the
 versions in both `package.json` and `package-lock.json` before it creates the
 GitHub Release. The workflow only publishes an already-pushed tag and never
 creates or moves tags. A tag must not be force-updated or reused. If a GitHub
