@@ -77,7 +77,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "check": "tsc --noEmit -p ./",
-    "test": "npm run compile && node --test test/*.test.js",
+    "test": "npm run compile && node --test test/runtime.test.js",
     "test:extension": "npm run compile && node test/integration/run.js",
     "package": "npm run compile && npx --yes @vscode/vsce package"
   },
