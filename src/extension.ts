@@ -1199,7 +1199,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .orbit-satellite { position: absolute; inset: 0; transform-origin: center; animation: orbit 12s linear infinite; }
     .orbit-satellite span { position: absolute; top: 0; left: 50%; width: 7px; height: 7px; border-radius: 50%; transform: translateX(-50%); background: var(--mint); box-shadow: 0 0 12px var(--mint); }
     .empty-core { position: absolute; inset: 25px; border-radius: 50%; background: linear-gradient(135deg, var(--violet), var(--mint)); box-shadow: 0 0 18px color-mix(in srgb, var(--mint) 32%, transparent); animation: pulse 1.8s ease-in-out infinite; }
-    .empty-title { position: relative; display: block; color: var(--ink); font-size: 14px; margin-bottom: 5px; }
+    .empty-title { position: relative; display: block; margin: 0 0 5px; color: var(--ink); font-size: 14px; font-weight: 700; }
     .empty-copy { position: relative; margin: 0; }
     .empty-copy code { color: var(--violet); background: color-mix(in srgb, var(--violet) 10%, transparent); border-radius: 4px; padding: 1px 4px; }
     .empty-actions { position: relative; display: flex; gap: 7px; margin-top: 15px; }
@@ -1232,7 +1232,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .row { display: flex; gap: 8px; align-items: center; }
     .glyph { width: 21px; height: 21px; border-radius: 7px; display: grid; place-items: center; background: color-mix(in srgb, var(--muted) 13%, transparent); color: var(--muted); flex: 0 0 auto; }
     .running .glyph { color: var(--mint); background: color-mix(in srgb, var(--mint) 13%, transparent); animation: pulse 1.8s ease-in-out infinite; }
-    .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .name { min-width: 0; margin: 0; font: inherit; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .sub { color: var(--muted); font-size: 10px; margin: 4px 0 8px 29px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bar { position: relative; height: 6px; background: color-mix(in srgb, var(--muted) 13%, transparent); border: 1px solid color-mix(in srgb, var(--muted) 10%, transparent); border-radius: 20px; overflow: hidden; box-shadow: inset 0 1px 1px color-mix(in srgb, var(--surface) 42%, transparent); }
     .fill { position: relative; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--violet), var(--mint)); transition: width .9s cubic-bezier(.22,1,.36,1); will-change: width; }
@@ -1276,7 +1276,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     </div>
   </div>
   <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-  <main id="list" aria-label="Task board" aria-live="off" aria-busy="true"><div class="empty"><strong>Loading tasks…</strong>Looking for tasks from .vscode/tasks.json.</div></main>
+  <main id="list" tabindex="-1" aria-label="Task board" aria-live="off" aria-busy="true"><div class="empty"><strong>Loading tasks…</strong>Looking for tasks from .vscode/tasks.json.</div></main>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const list = document.getElementById('list');
@@ -1339,7 +1339,41 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       list.prepend(alert);
       alert.querySelector('button')?.addEventListener('click', refresh);
     }
+    function captureListFocus() {
+      const active = document.activeElement;
+      if (!active || !list.contains(active)) return undefined;
+      const card = active.closest ? active.closest('article[data-task-id]') : undefined;
+      return {
+        id: active.id || '',
+        action: active.getAttribute('data-action') || '',
+        actionId: active.getAttribute('data-id') || '',
+        taskId: card?.getAttribute('data-task-id') || '',
+        executionId: card?.getAttribute('data-execution-id') || ''
+      };
+    }
+    function restoreListFocus(bookmark) {
+      if (!bookmark) return;
+      let target = bookmark.id ? document.getElementById(bookmark.id) : undefined;
+      if (!target && bookmark.action && bookmark.actionId) {
+        target = Array.from(list.querySelectorAll('[data-action]')).find(candidate =>
+          candidate.getAttribute('data-action') === bookmark.action &&
+          candidate.getAttribute('data-id') === bookmark.actionId
+        );
+      }
+      if (!target && bookmark.executionId) {
+        target = Array.from(list.querySelectorAll('article[data-execution-id]')).find(candidate =>
+          candidate.getAttribute('data-execution-id') === bookmark.executionId
+        );
+      }
+      if (!target && bookmark.taskId) {
+        target = Array.from(list.querySelectorAll('article[data-task-id]')).find(candidate =>
+          candidate.getAttribute('data-task-id') === bookmark.taskId
+        );
+      }
+      (target || list).focus({ preventScroll: true });
+    }
     function render(tasks) {
+      const focusBookmark = captureListFocus();
       allTasks = tasks;
       announceStateChanges(tasks);
       list.setAttribute('aria-busy', 'false');
@@ -1348,7 +1382,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
           '<div class="empty-ambient" aria-hidden="true"></div>' +
           '<div class="empty-card">' +
           '<div class="empty-visual" aria-hidden="true"><div class="orbit-system"><div class="orbit-ring"></div><div class="orbit-satellite"><span></span></div><div class="empty-core"></div></div></div>' +
-          '<strong class="empty-title">Your board is ready for its first task</strong>' +
+          '<h2 class="empty-title">Your board is ready for its first task</h2>' +
           '<p class="empty-copy">Create a workspace task in <code>.vscode/tasks.json</code>. Once you save, it will appear here with history and runtime planning.</p>' +
           '<div class="empty-actions"><button class="empty-cta" id="emptyCreate" type="button">Create task&nbsp; →</button><button class="empty-secondary" id="emptyEdit" type="button">Open tasks.json</button><button class="empty-secondary" id="emptyRefresh" type="button">Refresh</button></div>' +
           '<p class="empty-hint">Only tasks from this workspace file are shown by default. External providers are opt-in.</p>' +
@@ -1357,11 +1391,13 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         document.getElementById('emptyCreate')?.addEventListener('click', () => vscode.postMessage({ command: 'create' }));
         document.getElementById('emptyEdit')?.addEventListener('click', () => vscode.postMessage({ command: 'edit' }));
         document.getElementById('emptyRefresh')?.addEventListener('click', refresh);
+        restoreListFocus(focusBookmark);
         return;
       }
       const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort);
       if (!visibleTasks.length) {
         list.innerHTML = '<div class="filtered-empty" role="status"><strong>No matching tasks</strong><br><span>Change the search or filters to see more tasks.</span></div>';
+        restoreListFocus(focusBookmark);
         return;
       }
       const renderTime = performance.now();
@@ -1404,11 +1440,12 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const stateClass = task.lifecycle === 'awaiting-task-end' ? 'awaiting' : task.isRunning ? 'running' : task.progressState === 'completed' ? 'completed' : task.lifecycle === 'stale' || task.lastOutcome === 'stale' ? 'stale' : task.lastOutcome === 'failed' ? 'failed' : task.lastOutcome === 'cancelled' ? 'cancelled' : task.lastOutcome === 'unknown' ? 'unknown' : '';
         const dependencyClass = task.dependencyState ? ' dependency-' + task.dependencyState : '';
         const executionLabel = task.executionId ? ' · ' + escapeHtml(task.executionId) : '';
-        const availableActions = task.isRunning ? 'Stop, restart, and edit task definition.' : task.source === 'Workspace' ? 'Run, restart, and edit task definition.' : 'Run or restart task.';
+        const stopAvailable = task.isRunning && !task.isStopping && task.lifecycle !== 'awaiting-task-end';
+        const availableActions = stopAvailable ? 'Stop, restart, and edit task definition.' : task.isRunning ? 'Restart and edit task definition.' : task.source === 'Workspace' ? 'Run, restart, and edit task definition.' : 'Run or restart task.';
         const accessibleLabel = escapeHtml([task.name, task.source, task.group, task.workspaceFolderName, status, planned, 'Available actions: ' + availableActions].filter(Boolean).join('. '));
         const progressValue = indeterminate ? '' : ' aria-valuenow="' + Math.round(barWidth) + '"';
-        return '<article class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" aria-label="' + accessibleLabel + '">' +
-          '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><span class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</span><span class="task-actions">' + action + restartAction + editAction + '</span></div>' +
+        return '<article class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" tabindex="-1" data-task-id="' + escapeHtml(task.id) + '" data-execution-id="' + escapeHtml(task.executionId || '') + '" aria-label="' + accessibleLabel + '">' +
+          '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><h2 class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</h2><span class="task-actions">' + action + restartAction + editAction + '</span></div>' +
           '<div class="sub" title="' + escapeHtml(task.source + ' · ' + task.group + (task.workspaceFolderName ? ' · ' + task.workspaceFolderName : '')) + '">' + escapeHtml(task.source) + ' · ' + escapeHtml(task.group) + (task.workspaceFolderName ? ' · ' + escapeHtml(task.workspaceFolderName) : '') + (task.isDependency ? ' · Child' : task.dependsOn.length ? ' · Depends on ' + escapeHtml(task.dependsOn.join(', ')) + ' (' + escapeHtml(task.dependsOrder) + ')' : '') + executionLabel + (task.orphaned ? ' · Orphaned' : '') + '</div>' +
           '<div class="bar" role="progressbar" aria-label="Progress for ' + escapeHtml(task.name) + '" aria-valuemin="0" aria-valuemax="100"' + progressValue + ' aria-valuetext="' + escapeHtml(status) + '"><div class="fill' + (indeterminate ? ' indeterminate' : '') + '" data-progress-id="' + progressId + '" data-planned-ms="' + plannedMs + '" style="width:' + barWidth + '%"></div></div>' +
           '<div class="meta"><span class="' + (task.overtimeMs ? 'late' : '') + '">' + escapeHtml(status) + '</span><span>' + escapeHtml(planned) + '</span></div>' +
@@ -1420,6 +1457,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         if (!encodedId) return;
         vscode.postMessage({ command: target.dataset.action, id: decodeURIComponent(encodedId) });
       }));
+      restoreListFocus(focusBookmark);
       if (list.querySelector('.fill.indeterminate')) startProgressAnimation();
     }
     function announceStateChanges(tasks) {
