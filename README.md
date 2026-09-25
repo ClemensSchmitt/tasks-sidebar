@@ -39,7 +39,6 @@ Open the **Tasks** activity-bar view. Select the play button on the task card to
 
 The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enabled, npm, user, extension, and other external providers can appear in the board.
 
-
 ## Features
 
 - Run, stop and safely restart individual task executions
