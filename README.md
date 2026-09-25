@@ -2,6 +2,43 @@
 
 A visual VS Code task board for tasks defined in `.vscode/tasks.json`.
 
+## Install
+
+Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/tag/v0.0.5), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
+
+The latest published GitHub release is **v0.0.5**. This repository's current `main` contains additional changes listed under **Unreleased** in the [changelog](CHANGELOG.md); those changes are not included in the v0.0.5 VSIX. There is no Visual Studio Code Marketplace listing yet.
+
+## Getting started
+
+Add a task to `.vscode/tasks.json` in your workspace:
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Example: Say hello",
+      "type": "shell",
+      "command": "echo Hello from Tasks Sidebar",
+      "problemMatcher": []
+    }
+  ]
+}
+```
+
+Open the **Tasks** activity-bar view. Select the play button on the task card to run it and the stop button to request a stop. If the task list is not current, run **Tasks: Refresh** from the Command Palette. VS Code's normal task configuration rules still apply; see the [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks).
+
+## Commands and configuration
+
+| Command Palette command | Action |
+| --- | --- |
+| `Tasks: Refresh` | Refresh task discovery and the board. |
+| `Tasks: Open tasks.json` | Open the selected workspace task definition. |
+| `Tasks: Create task` | Create a simple shell task in the selected workspace folder. |
+| `Tasks: Toggle external task providers` | Toggle visibility of tasks from external providers for this workspace. |
+
+The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enabled, npm, user, extension, and other external providers can appear in the board.
+
 ## Features
 
 - Run, stop and safely restart individual task executions
@@ -65,3 +102,9 @@ npm run package
 ```
 
 `npm run test:extension` launches a real VS Code Extension Development Host against a fixture workspace. CI runs it on Windows, macOS and Linux, on VS Code 1.85.0 and stable. Press `F5` to start an Extension Development Host; the view appears under the Tasks activity-bar icon.
+
+## Support and issues
+
+See [SUPPORT.md](SUPPORT.md) for bug-report instructions and useful diagnostic details. The GitHub [issue tracker](https://github.com/ClemensSchmitt/tasks-sidebar/issues) is currently available only to repository users because this repository is private; public users will need public repository access before they can report an issue there. No public Marketplace support channel is available yet.
+
+This project is distributed under the [MIT License](LICENSE). See the [changelog](CHANGELOG.md) for release history and unreleased changes.
