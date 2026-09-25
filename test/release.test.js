@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const zlib = require('node:zlib');
-const { bump, bumpVersion, readManifests, verify, verifyVsix } = require('../scripts/release');
+const { bump, bumpVersion, inspectVsix, readManifests, verify, verifyVsix } = require('../scripts/release');
 
 function fixtureDirectory(t, version = '0.0.5') {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-sidebar-release-'));
@@ -65,11 +65,30 @@ function makeStoredZip(entries, method = 0) {
   return Buffer.concat([...localParts, ...centralParts, end]);
 }
 
-function makeVsix(version) {
+function makeVsix(version, method = 0, extraEntries = {}) {
+  const manifest = {
+    name: 'fixture',
+    publisher: 'fixture',
+    version,
+    main: './out/extension.js',
+    icon: './resources/marketplace-icon.png',
+    contributes: {
+      viewsContainers: { activitybar: [{ id: 'tasksSidebar', title: 'Tasks', icon: './resources/tasks.svg' }] },
+      views: { tasksSidebar: [{ id: 'tasksSidebar.view', name: 'Task board', type: 'webview' }] },
+    },
+  };
   return makeStoredZip({
-    'extension/package.json': JSON.stringify({ name: 'fixture', version }),
-    'extension.vsixmanifest': `<PackageManifest><Metadata><Identity Id="fixture" Version="${version}" /></Metadata></PackageManifest>`,
-  });
+    'extension/package.json': JSON.stringify(manifest),
+    'extension.vsixmanifest': '<PackageManifest><Metadata><Identity Id="fixture" Publisher="fixture" Version="' + version + '" /></Metadata></PackageManifest>',
+    'extension/out/extension.js': 'compiled entry',
+    'extension/out/runtime.js': 'compiled runtime',
+    'extension/resources/tasks.svg': '<svg />',
+    'extension/resources/marketplace-icon.png': 'png',
+    'extension/README.md': 'readme',
+    'extension/CHANGELOG.md': 'changelog',
+    'extension/LICENSE': 'license',
+    ...extraEntries,
+  }, method);
 }
 
 test('patch is the default and non-patch increments are explicit', () => {
@@ -124,13 +143,27 @@ test('verification requires matching tag, manifest, lockfile and VSIX metadata',
   assert.throws(() => verifyVsix(vsix, '0.0.5'), /VSIX version mismatch/);
 });
 
+test('VSIX content audit checks runtime assets and rejects development or credential files', (t) => {
+  const directory = fixtureDirectory(t);
+  const vsix = path.join(directory, 'fixture.vsix');
+  fs.writeFileSync(vsix, makeVsix('0.0.5'));
+  const report = inspectVsix(vsix);
+  assert.equal(report.extensionId, 'fixture.fixture');
+  assert.ok(report.requiredFiles.includes('extension/out/runtime.js'));
+  assert.ok(report.requiredFiles.includes('extension/resources/tasks.svg'));
+  assert.ok(report.files.includes('extension/out/extension.js'));
+
+  fs.writeFileSync(vsix, makeVsix('0.0.5', 0, {
+    'extension/test/integration/suite.js': 'test fixture',
+    'extension/.env.local': 'TOKEN=do-not-package',
+  }));
+  assert.throws(() => inspectVsix(vsix), /forbidden development, local, or credential files/);
+});
+
 test('VSIX verifier reads deflated ZIP entries and rejects malformed archives', (t) => {
   const directory = fixtureDirectory(t);
   const vsix = path.join(directory, 'fixture.vsix');
-  fs.writeFileSync(vsix, makeStoredZip({
-    'extension/package.json': JSON.stringify({ version: '0.0.5' }),
-    'extension.vsixmanifest': '<PackageManifest><Identity Version="0.0.5" /></PackageManifest>',
-  }, 8));
+  fs.writeFileSync(vsix, makeVsix('0.0.5', 8));
   assert.doesNotThrow(() => verifyVsix(vsix, '0.0.5'));
   fs.writeFileSync(vsix, Buffer.from('not a zip'));
   assert.throws(() => verifyVsix(vsix, '0.0.5'), /valid ZIP archive/);
