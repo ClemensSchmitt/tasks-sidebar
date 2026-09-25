@@ -1,0 +1,81 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Quick success",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('SMOKE_OK')"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Expected failure",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.error('EXPECTED_FAILURE'); process.exit(7)"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Long runner A",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('LONG_A_READY'); setInterval(() => {}, 1000)"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Long runner B",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('LONG_B_READY'); setInterval(() => {}, 1000)"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Background watcher",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('BACKGROUND_READY'); setInterval(() => {}, 1000)"],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "owner": "tasks-sidebar-release-smoke",
+          "pattern": { "regexp": "^$" },
+          "background": {
+            "activeOnStart": false,
+            "beginsPattern": "^BACKGROUND_READY$",
+            "endsPattern": "^BACKGROUND_STOPPED$"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Dependency one",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('DEPENDENCY_ONE'); setTimeout(() => process.exit(0), 700)"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Dependency two",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('DEPENDENCY_TWO'); setTimeout(() => process.exit(0), 700)"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Sequential dependency parent",
+      "dependsOn": ["Dependency one", "Dependency two"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Parallel dependency parent",
+      "dependsOn": ["Dependency one", "Dependency two"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}

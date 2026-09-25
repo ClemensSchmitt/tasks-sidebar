@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Folder sort alpha",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('FOLDER_ALPHA')"],
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
