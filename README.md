@@ -108,7 +108,7 @@ npm run package
 npm run test:vsix
 ```
 
-`npm run test:extension` launches a real VS Code Extension Development Host against a fixture workspace. CI runs it on Windows, macOS and Linux, on VS Code 1.85.0 and stable. Press `F5` to start an Extension Development Host; the view appears under the Tasks activity-bar icon.
+`npm run test:extension` launches a real VS Code Extension Development Host against a fixture workspace. CI runs it on Windows, macOS and Linux, on VS Code 1.85.0 and stable. Press `F5` to start an Extension Development Host; the view appears under the Tasks activity-bar icon. The suite also checks the generated sidebar controls, webview action routing and failure reporting; the runtime suite covers deterministic search, filter and sort behavior.
 
 `npm run test:vsix` audits the generated VSIX, installs it with the VS Code CLI into fresh extension and user-data directories, then runs an Extension Host smoke test against that installed package. The test opens the Tasks Activity Bar view and checks activation and the refresh command. CI records the actual VS Code version and package file list in a `vsix-install-probe.json` artifact for each supported matrix entry.
 
