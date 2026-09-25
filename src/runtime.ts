@@ -84,7 +84,7 @@ export function applyTaskExecutionEvent(
     next.lifecycle = 'stale';
   } else if (event.type === 'execution-observed' && next.stale && !next.taskEndSeen) {
     next.stale = false;
-    next.stopRequested = false;
+    if (!next.processEndSeen) next.stopRequested = false;
     next.lifecycle = next.processEndSeen ? 'awaiting-task-end' : 'running';
   }
   return next;
