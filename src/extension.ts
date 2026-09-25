@@ -208,6 +208,7 @@ class TaskBoard {
   }
 
   async run(id: string): Promise<void> {
+    this.reconcileRunningExecutions();
     if (!shouldAllowStart(this.starting.has(id), this.hasActiveLogicalTask(id))) {
       void vscode.window.showInformationMessage('This task is already running.');
       return;
@@ -615,16 +616,30 @@ class TaskBoard {
 
   private reconcileRunningExecutions(): void {
     const executions = new Set(vscode.tasks.taskExecutions);
+    let recoveredExecution = false;
     for (const active of this.running.values()) {
-      if (active.lifecycle === 'stale' || active.taskEndSeen) continue;
-      if (!executions.has(active.execution)) {
+      if (active.taskEndSeen) continue;
+      if (executions.has(active.execution)) {
+        if (active.lifecycle === 'stale') {
+          Object.assign(active, applyTaskExecutionEvent(active, { type: 'execution-observed' }));
+          if (active.staleTimer) clearTimeout(active.staleTimer);
+          active.staleTimer = undefined;
+          recoveredExecution = true;
+          if (shouldScheduleStaleCheck(active.isBackground, active.stopRequested, active.taskEndSeen)) {
+            this.scheduleStaleCheck(active, END_EVENT_TIMEOUT_MS);
+          }
+        }
+        if (active.lifecycle === 'running' && !active.stopRequested && !active.processEndSeen && active.staleTimer) {
+          clearTimeout(active.staleTimer);
+          active.staleTimer = undefined;
+        }
+      } else {
+        if (active.lifecycle === 'stale') continue;
         if (!shouldScheduleStaleCheck(active.isBackground, active.stopRequested, active.taskEndSeen, true)) continue;
         if (!active.staleTimer) this.scheduleStaleCheck(active, END_EVENT_TIMEOUT_MS);
-      } else if (active.lifecycle === 'running' && !active.stopRequested && !active.processEndSeen && active.staleTimer) {
-        clearTimeout(active.staleTimer);
-        active.staleTimer = undefined;
       }
     }
+    if (recoveredExecution) this.persistActiveObservations();
   }
 
   private scheduleFinish(active: ActiveTask, delayMs: number): void {

@@ -82,14 +82,20 @@ The provider/source is always shown. If two providers expose the same display na
 
 ## Compatibility and remote behavior
 
-| Host | Support level | Validation |
+| Host class | Support level | Validation status |
 | --- | --- | --- |
-| Local Windows, macOS and Linux | Supported | Extension-host smoke tests on stable VS Code and 1.85.0 run in CI for each OS. |
-| WSL, Dev Container and Remote SSH | Best effort; not certified | Uses the remote workspace extension host and URI-based VS Code APIs; no automated remote-host runner is currently available. |
+| Local Windows, macOS and Linux workspaces | Supported | CI runs source-based Extension Host tests and installed-VSIX probes on each OS with VS Code 1.85.0 and Stable. |
+| WSL | Best effort; not certified | Not run for this change. |
+| Dev Containers | Best effort; not certified | Not run for this change. |
+| Remote SSH | Best effort; not certified | Not run for this change. |
 
-The extension runs in the workspace host (`extensionKind: workspace`). The host label in the board and error messages distinguishes local from remote execution. On reconnect/reload, executions still reported by VS Code are restored. If the host no longer reports an execution, it is marked unknown/stale after the observation grace period; the extension never claims that a remote process was stopped just because its connection disappeared. Editing and task execution use the selected workspace folder's VS Code APIs.
+The CI Linux jobs run a local Linux Extension Host; they do not certify WSL, a Dev Container or Remote SSH. Each remote host class must be checked and recorded separately before it is described as validated. The repeatable manual procedure and blank run record are in [the remote workspace smoke test](test/remote-smoke/README.md).
 
-VS Code `1.85.0` or newer is required by package metadata and an activation guard. The user interface is currently English-only; translations are not included. Automated UI contract tests cover theme tokens, focus/reduced-motion hooks, labels and indeterminate progress semantics. Contrast and screen-reader behavior still need manual checks against representative VS Code themes and assistive technology.
+The extension declares `extensionKind: workspace`, so it runs in the extension host for the selected workspace. The board identifies that host as `Local extension host` or `Remote · <name>`; provider and file error messages use the same host label. WSL, Dev Container and SSH use VS Code's workspace task and URI-based file APIs, but their support remains best effort until the corresponding smoke run is recorded.
+
+After a reload or reconnect, executions that VS Code reports are restored. If an execution previously marked stale is reported again by the same extension host, the next reconciliation restores it to its active state before a new Start request is accepted. When no process-end event was observed, an unconfirmed stop request is cleared so the task can be stopped again; when process-end evidence exists, the stop intent is retained while the extension waits for task-end. A new Start request is blocked while that execution is reported. If VS Code no longer reports an observed execution, the extension eventually records it as unknown/stale; a lost connection alone is not treated as proof of success or a confirmed stop. Task files are read and edited through the selected workspace folder's VS Code APIs.
+
+VS Code 1.85.0 or newer is required by package metadata and an activation guard. Older versions receive an actionable error if the VSIX is installed manually. The user interface is currently English-only; translations are not included. Automated UI contract tests cover theme tokens, focus/reduced-motion hooks, labels and indeterminate progress semantics. Contrast and screen-reader behavior still need manual checks against representative VS Code themes and assistive technology.
 
 ## Development
 

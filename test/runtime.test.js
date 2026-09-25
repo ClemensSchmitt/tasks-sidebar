@@ -35,6 +35,57 @@ test('a confirmed stopped task is cancelled', () => {
   assert.equal(resolveTaskOutcome(observation({ stopRequested: true, taskEndSeen: true, processEndSeen: true, exitCode: 0 })), 'cancelled');
 });
 
+test('a stale execution reported live again resumes without remaining blocked by an old stop request', () => {
+  const stoppedButUnconfirmed = {
+    stopRequested: true,
+    taskEndSeen: false,
+    processEndSeen: false,
+    stale: false,
+    lifecycle: 'stopping'
+  };
+  const stale = applyTaskExecutionEvent(stoppedButUnconfirmed, { type: 'stale' });
+  const resumed = applyTaskExecutionEvent(stale, { type: 'execution-observed' });
+
+  assert.equal(resumed.lifecycle, 'running');
+  assert.equal(resumed.stale, false);
+  assert.equal(resumed.stopRequested, false);
+  assert.equal(shouldAllowStart(false, true), false);
+
+  const terminalStale = applyTaskExecutionEvent(
+    applyTaskExecutionEvent(stale, { type: 'task-end' }),
+    { type: 'execution-observed' }
+  );
+  assert.equal(terminalStale.lifecycle, 'stale');
+  assert.equal(terminalStale.stale, true);
+  assert.equal(terminalStale.taskEndSeen, true);
+});
+
+test('re-observing after process end preserves an unconfirmed stop until task end', () => {
+  const processEnded = applyTaskExecutionEvent({
+    stopRequested: true,
+    taskEndSeen: false,
+    processEndSeen: false,
+    stale: false,
+    lifecycle: 'stopping'
+  }, { type: 'process-end', exitCode: 0 });
+  const stale = applyTaskExecutionEvent(processEnded, { type: 'stale' });
+  const resumed = applyTaskExecutionEvent(stale, { type: 'execution-observed' });
+
+  assert.equal(resumed.lifecycle, 'awaiting-task-end');
+  assert.equal(resumed.stopRequested, true);
+  assert.equal(resumed.processEndSeen, true);
+
+  const ended = applyTaskExecutionEvent(resumed, { type: 'task-end' });
+  assert.equal(resolveTaskOutcome({
+    stopRequested: ended.stopRequested,
+    taskEndSeen: ended.taskEndSeen,
+    processEndSeen: ended.processEndSeen,
+    exitCode: ended.exitCode,
+    graceExpired: true,
+    stale: ended.stale
+  }), 'cancelled');
+});
+
 test('duplicate starts are rejected deterministically', () => {
   assert.equal(shouldAllowStart(true, false), false);
   assert.equal(shouldAllowStart(false, true), false);

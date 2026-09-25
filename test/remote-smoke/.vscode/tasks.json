@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Remote smoke: quick success",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "-e",
+        "console.log('REMOTE_SMOKE_OK')"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Remote smoke: expected failure",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "-e",
+        "console.log('REMOTE_SMOKE_EXPECTED_FAILURE'); process.exit(7)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Remote smoke: long runner",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "-e",
+        "console.log('REMOTE_SMOKE_STARTED'); setInterval(() => console.log('REMOTE_SMOKE_TICK'), 1000)"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
