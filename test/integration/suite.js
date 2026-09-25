@@ -122,7 +122,16 @@ async function run() {
   assert.match(html, /candidate\.getAttribute\('data-action'\) === bookmark\.action/);
   assert.match(html, /candidate\.getAttribute\('data-id'\) === bookmark\.actionId/);
   assert.match(html, /\(target \|\| list\)\.focus\(\{ preventScroll: true \}\)/);
-  assert.match(html, /stopAvailable \? 'Stop, restart, and edit task definition\.' : task\.isRunning \? 'Restart and edit task definition\.'/);
+  assert.match(html, /#list:focus-visible, \.task:focus-visible/);
+  assert.match(html, /#list:focus-visible, \.task:focus-visible \{ outline: 2px solid Highlight;/);
+  assert.match(html, /if \(renderSignature === lastRenderSignature\) \{\s*updateTaskCards\(visibleTasks, renderTime\);\s*return;/);
+  assert.match(html, /if \(lastRenderSignature === 'empty'\) return;/);
+  assert.match(html, /id="discoveryRetry" type="button" aria-label="Retry task discovery"/);
+  assert.match(html, /current && current\.dataset\.message === message/);
+  assert.match(html, /if \(task\.isRunning\) \{\s*if \(!task\.isStopping && task\.lifecycle !== 'awaiting-task-end'\) actions\.push\('Stop'\);\s*\} else \{\s*actions\.push\('Run'\);\s*\}/);
+  assert.match(html, /if \(task\.isRunning \|\| task\.lastOutcome\) actions\.push\('Restart'\);/);
+  assert.match(html, /if \(task\.source === 'Workspace'\) actions\.push\('Edit task definition'\);/);
+  assert.match(html, /return actions\.length \? actions\.join\(', '\) : 'No actions available';/);
   assert.match(html, /if \(event\.matches && progressFrame\) \{\s*cancelAnimationFrame\(progressFrame\);/);
 
   const escaped = extensionModule.createTaskBoardHtml('<script>', 'Host <script>');
