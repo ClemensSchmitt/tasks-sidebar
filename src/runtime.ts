@@ -48,7 +48,8 @@ export type TaskExecutionEvent =
   | { type: 'termination-failed' }
   | { type: 'process-end'; exitCode?: number }
   | { type: 'task-end' }
-  | { type: 'stale' };
+  | { type: 'stale' }
+  | { type: 'execution-observed' };
 
 export type TaskExecutionObservation = {
   stopRequested: boolean;
@@ -81,6 +82,10 @@ export function applyTaskExecutionEvent(
   } else if (event.type === 'stale') {
     next.stale = true;
     next.lifecycle = 'stale';
+  } else if (event.type === 'execution-observed' && next.stale && !next.taskEndSeen) {
+    next.stale = false;
+    next.stopRequested = false;
+    next.lifecycle = next.processEndSeen ? 'awaiting-task-end' : 'running';
   }
   return next;
 }
