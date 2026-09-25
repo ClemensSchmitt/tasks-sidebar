@@ -974,8 +974,8 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
     view.webview.options = { enableScripts: true, localResourceRoots: [this.extensionUri] };
-    view.webview.html = createTaskBoardHtml(this.extensionVersion, this.    view.webview.onDidReceiveMessage(message => this.handleWebviewMessage(message));
-   });
+    view.webview.html = createTaskBoardHtml(this.extensionVersion, this.host);
+    view.webview.onDidReceiveMessage(message => this.handleWebviewMessage(message));
     if (this.pending) this.render(this.pending, this.pendingWarning);
   }
 
