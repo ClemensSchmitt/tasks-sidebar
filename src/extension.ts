@@ -1178,7 +1178,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .actions { display: flex; gap: 4px; }
     button { min-width: 28px; min-height: 28px; border: 0; color: inherit; background: transparent; cursor: pointer; border-radius: 6px; padding: 5px 7px; font: inherit; }
     button:hover { background: var(--vscode-toolbar-hoverBackground); }
-    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .primary { background: color-mix(in srgb, var(--violet) 16%, transparent); color: var(--violet); }
     .primary:hover { background: color-mix(in srgb, var(--violet) 27%, transparent); }
     .board-tools { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin: 0 0 10px; }
@@ -1199,7 +1199,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .orbit-satellite { position: absolute; inset: 0; transform-origin: center; animation: orbit 12s linear infinite; }
     .orbit-satellite span { position: absolute; top: 0; left: 50%; width: 7px; height: 7px; border-radius: 50%; transform: translateX(-50%); background: var(--mint); box-shadow: 0 0 12px var(--mint); }
     .empty-core { position: absolute; inset: 25px; border-radius: 50%; background: linear-gradient(135deg, var(--violet), var(--mint)); box-shadow: 0 0 18px color-mix(in srgb, var(--mint) 32%, transparent); animation: pulse 1.8s ease-in-out infinite; }
-    .empty-title { position: relative; display: block; color: var(--ink); font-size: 14px; margin-bottom: 5px; }
+    .empty-title { position: relative; display: block; margin: 0 0 5px; color: var(--ink); font-size: 14px; font-weight: 700; }
     .empty-copy { position: relative; margin: 0; }
     .empty-copy code { color: var(--violet); background: color-mix(in srgb, var(--violet) 10%, transparent); border-radius: 4px; padding: 1px 4px; }
     .empty-actions { position: relative; display: flex; gap: 7px; margin-top: 15px; }
@@ -1232,7 +1232,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .row { display: flex; gap: 8px; align-items: center; }
     .glyph { width: 21px; height: 21px; border-radius: 7px; display: grid; place-items: center; background: color-mix(in srgb, var(--muted) 13%, transparent); color: var(--muted); flex: 0 0 auto; }
     .running .glyph { color: var(--mint); background: color-mix(in srgb, var(--mint) 13%, transparent); animation: pulse 1.8s ease-in-out infinite; }
-    .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .name { min-width: 0; margin: 0; font: inherit; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .sub { color: var(--muted); font-size: 10px; margin: 4px 0 8px 29px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bar { position: relative; height: 6px; background: color-mix(in srgb, var(--muted) 13%, transparent); border: 1px solid color-mix(in srgb, var(--muted) 10%, transparent); border-radius: 20px; overflow: hidden; box-shadow: inset 0 1px 1px color-mix(in srgb, var(--surface) 42%, transparent); }
     .fill { position: relative; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--violet), var(--mint)); transition: width .9s cubic-bezier(.22,1,.36,1); will-change: width; }
@@ -1249,7 +1249,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     @media (forced-colors: active) {
       body, .task, .empty-card, .search, .view-select { color: CanvasText; border-color: CanvasText; background: Canvas; }
       button, input, select, .meta, .sub, .host, .empty-hint { color: CanvasText; }
-      button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid Highlight; }
+      button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid Highlight; }
       .fill { background: Highlight; }
       .glyph { color: CanvasText; border: 1px solid CanvasText; }
     }
@@ -1276,7 +1276,8 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     </div>
   </div>
   <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-  <main id="list" aria-label="Task board" aria-live="off" aria-busy="true"><div class="empty"><strong>Loading tasks…</strong>Looking for tasks from .vscode/tasks.json.</div></main>
+  <div id="warning"></div>
+  <main id="list" tabindex="-1" aria-label="Task board" aria-live="off" aria-busy="true"><div class="empty"><strong>Loading tasks…</strong>Looking for tasks from .vscode/tasks.json.</div></main>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const list = document.getElementById('list');
@@ -1284,6 +1285,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     const filter = document.getElementById('filter');
     const sort = document.getElementById('sort');
     const announcer = document.getElementById('announcer');
+    const warningRegion = document.getElementById('warning');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let allTasks = [];
     let query = '';
@@ -1295,6 +1297,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     let receivedInitialSnapshot = false;
     let announcedStates = new Map();
     const progressClocks = new Map();
+    let lastRenderSignature = '';
     reducedMotion.addEventListener('change', event => {
       if (event.matches && progressFrame) {
         cancelAnimationFrame(progressFrame);
@@ -1328,27 +1331,147 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       else clearWarning();
     });
     function clearWarning() {
-      list.querySelector('.inline-alert')?.remove();
+      const retryWasFocused = document.activeElement?.id === 'discoveryRetry';
+      warningRegion?.replaceChildren();
+      if (retryWasFocused) list.focus({ preventScroll: true });
     }
     function renderWarning(message) {
-      clearWarning();
+      if (!warningRegion) return;
+      const current = warningRegion.querySelector('.inline-alert');
+      if (current && current.dataset.message === message) return;
+      const retryWasFocused = document.activeElement?.id === 'discoveryRetry';
       const alert = document.createElement('div');
       alert.className = 'inline-alert';
+      alert.dataset.message = message;
       alert.setAttribute('role', 'alert');
-      alert.innerHTML = '<span class="inline-alert-copy">' + escapeHtml(message) + '</span><button type="button">Retry</button>';
-      list.prepend(alert);
+      alert.innerHTML = '<span class="inline-alert-copy">' + escapeHtml(message) + '</span><button id="discoveryRetry" type="button" aria-label="Retry task discovery">Retry</button>';
+      warningRegion.replaceChildren(alert);
       alert.querySelector('button')?.addEventListener('click', refresh);
+      if (retryWasFocused) document.getElementById('discoveryRetry')?.focus({ preventScroll: true });
+    }
+    function runtimeStatus(task) {
+      if (task.lifecycle === 'stopping') return 'Stopping…';
+      if (task.lifecycle === 'awaiting-task-end') return 'Process ended · waiting for task end';
+      if (task.lifecycle === 'stale') return 'Stale · execution is no longer observable';
+      if (task.isRunning) return (task.isBackground ? 'Watch · ' : '') + format(task.elapsedMs) + (task.elapsedBasis === 'since-reload' ? ' · since reload' : '') + (task.overtimeMs ? ' · ' + format(task.overtimeMs) + ' over plan' : '');
+      if (task.lastOutcome === 'failed') return 'Failed' + (task.lastExitCode !== undefined ? ' · exit code ' + task.lastExitCode : '');
+      if (task.lastOutcome === 'cancelled') return 'Cancelled' + (task.lastRunDurationMs ? ' after ' + format(task.lastRunDurationMs) : '');
+      if (task.lastOutcome === 'unknown') return 'Unknown outcome';
+      if (task.lastOutcome === 'stale') return 'Stale · no end event';
+      return task.lastDurationMs ? 'Last run ' + format(task.lastDurationMs) : 'No run history yet';
+    }
+    function statusText(task) {
+      const dependencyNote = dependencyLabel(task);
+      return runtimeStatus(task) + (dependencyNote ? ' · ' + dependencyNote : '');
+    }
+    function plannedText(task) {
+      return task.isBackground && task.isRunning ? 'Runs continuously' : task.plannedMs ? 'Plan ' + format(task.plannedMs) : task.isRunning ? 'Learning duration' : 'Plan will be learned';
+    }
+    function availableActionsText(task) {
+      const actions = [];
+      if (task.isRunning) {
+        if (!task.isStopping && task.lifecycle !== 'awaiting-task-end') actions.push('Stop');
+      } else {
+        actions.push('Run');
+      }
+      if (task.isRunning || task.lastOutcome) actions.push('Restart');
+      if (task.source === 'Workspace') actions.push('Edit task definition');
+      return actions.length ? actions.join(', ') : 'No actions available';
+    }
+    function accessibleTaskLabel(task, status, planned) {
+      return [task.name, task.source, task.group, task.workspaceFolderName, status, planned, 'Available actions: ' + availableActionsText(task)].filter(Boolean).join('. ');
+    }
+    function updateTaskCards(tasks, renderTime) {
+      const cards = Array.from(list.querySelectorAll('article[data-task-id]'));
+      tasks.forEach(task => {
+        const card = cards.find(candidate =>
+          candidate.getAttribute('data-task-id') === task.id &&
+          (candidate.getAttribute('data-execution-id') || '') === (task.executionId || '')
+        );
+        if (!card) return;
+        const status = statusText(task);
+        const planned = plannedText(task);
+        card.setAttribute('aria-label', accessibleTaskLabel(task, status, planned));
+        const meta = card.querySelectorAll('.meta span');
+        if (meta[0]) {
+          meta[0].textContent = status;
+          meta[0].classList.toggle('late', Boolean(task.overtimeMs));
+        }
+        if (meta[1]) meta[1].textContent = planned;
+        const bar = card.querySelector('.bar');
+        const fill = card.querySelector('.fill');
+        if (!bar || !fill) return;
+        const progressKey = task.executionId || task.id;
+        const clock = progressClocks.get(progressKey);
+        const locallyElapsed = task.isRunning && clock ? Math.max(clock.lastElapsedMs, renderTime - clock.startedAt) : task.elapsedMs;
+        const indeterminate = task.isRunning && task.progressState === 'unknown';
+        const barWidth = indeterminate ? 100 : task.isRunning && task.plannedMs ? Math.min(100, locallyElapsed / task.plannedMs * 100) : task.progress;
+        fill.style.width = barWidth + '%';
+        if (indeterminate) bar.removeAttribute('aria-valuenow');
+        else bar.setAttribute('aria-valuenow', String(Math.round(barWidth)));
+        bar.setAttribute('aria-valuetext', status);
+      });
+      if (list.querySelector('.fill.indeterminate')) startProgressAnimation();
+    }
+    function captureListFocus() {
+      const active = document.activeElement;
+      if (!active || !list.contains(active)) return undefined;
+      const card = active.closest ? active.closest('article[data-task-id]') : undefined;
+      return {
+        id: active.id || '',
+        action: active.getAttribute('data-action') || '',
+        actionId: active.getAttribute('data-id') || '',
+        taskId: card?.getAttribute('data-task-id') || '',
+        executionId: card?.getAttribute('data-execution-id') || ''
+      };
+    }
+    function restoreListFocus(bookmark) {
+      if (!bookmark) return;
+      let target = bookmark.id ? document.getElementById(bookmark.id) : undefined;
+      if (!target && bookmark.action && bookmark.actionId) {
+        target = Array.from(list.querySelectorAll('[data-action]')).find(candidate =>
+          candidate.getAttribute('data-action') === bookmark.action &&
+          candidate.getAttribute('data-id') === bookmark.actionId
+        );
+      }
+      if (!target && bookmark.action && bookmark.taskId) {
+        const actions = Array.from(list.querySelectorAll('[data-action]'));
+        target = actions.find(candidate => {
+          if (candidate.getAttribute('data-action') !== bookmark.action) return false;
+          const card = candidate.closest ? candidate.closest('article[data-task-id]') : undefined;
+          return card?.getAttribute('data-task-id') === bookmark.taskId &&
+            (!bookmark.executionId || card.getAttribute('data-execution-id') === bookmark.executionId);
+        }) || actions.find(candidate => {
+          if (candidate.getAttribute('data-action') !== bookmark.action) return false;
+          const card = candidate.closest ? candidate.closest('article[data-task-id]') : undefined;
+          return card?.getAttribute('data-task-id') === bookmark.taskId;
+        });
+      }
+      if (!target && bookmark.executionId) {
+        target = Array.from(list.querySelectorAll('article[data-execution-id]')).find(candidate =>
+          candidate.getAttribute('data-execution-id') === bookmark.executionId
+        );
+      }
+      if (!target && bookmark.taskId) {
+        target = Array.from(list.querySelectorAll('article[data-task-id]')).find(candidate =>
+          candidate.getAttribute('data-task-id') === bookmark.taskId
+        );
+      }
+      (target || list).focus({ preventScroll: true });
     }
     function render(tasks) {
+      const focusBookmark = captureListFocus();
       allTasks = tasks;
       announceStateChanges(tasks);
       list.setAttribute('aria-busy', 'false');
       if (!tasks.length) {
+        if (lastRenderSignature === 'empty') return;
+        lastRenderSignature = 'empty';
         list.innerHTML = '<section class="empty empty-state">' +
           '<div class="empty-ambient" aria-hidden="true"></div>' +
           '<div class="empty-card">' +
           '<div class="empty-visual" aria-hidden="true"><div class="orbit-system"><div class="orbit-ring"></div><div class="orbit-satellite"><span></span></div><div class="empty-core"></div></div></div>' +
-          '<strong class="empty-title">Your board is ready for its first task</strong>' +
+          '<h2 class="empty-title">Your board is ready for its first task</h2>' +
           '<p class="empty-copy">Create a workspace task in <code>.vscode/tasks.json</code>. Once you save, it will appear here with history and runtime planning.</p>' +
           '<div class="empty-actions"><button class="empty-cta" id="emptyCreate" type="button">Create task&nbsp; →</button><button class="empty-secondary" id="emptyEdit" type="button">Open tasks.json</button><button class="empty-secondary" id="emptyRefresh" type="button">Refresh</button></div>' +
           '<p class="empty-hint">Only tasks from this workspace file are shown by default. External providers are opt-in.</p>' +
@@ -1357,11 +1480,16 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         document.getElementById('emptyCreate')?.addEventListener('click', () => vscode.postMessage({ command: 'create' }));
         document.getElementById('emptyEdit')?.addEventListener('click', () => vscode.postMessage({ command: 'edit' }));
         document.getElementById('emptyRefresh')?.addEventListener('click', refresh);
+        restoreListFocus(focusBookmark);
         return;
       }
       const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort);
       if (!visibleTasks.length) {
+        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedSort]);
+        if (lastRenderSignature === emptySignature) return;
+        lastRenderSignature = emptySignature;
         list.innerHTML = '<div class="filtered-empty" role="status"><strong>No matching tasks</strong><br><span>Change the search or filters to see more tasks.</span></div>';
+        restoreListFocus(focusBookmark);
         return;
       }
       const renderTime = performance.now();
@@ -1383,12 +1511,25 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
           progressClocks.delete(progressKey);
         }
       });
+      const renderSignature = JSON.stringify([
+        query, selectedFilter, selectedSort,
+        ...visibleTasks.map(task => [
+          task.id, task.executionId, task.name, task.source, task.group, task.workspaceFolderName,
+          task.isBackground, task.isDependency, task.dependsOn, task.dependsOrder, task.dependencyIds,
+          task.dependencyState, task.dependencyFailure, task.isRunning, task.isStopping, task.lifecycle,
+          task.orphaned, task.progressState, task.plannedMs, task.lastDurationMs, task.runCount,
+          task.lastOutcome, task.lastRunDurationMs, task.lastExitCode, Boolean(task.overtimeMs), task.elapsedBasis
+        ])
+      ]);
+      if (renderSignature === lastRenderSignature) {
+        updateTaskCards(visibleTasks, renderTime);
+        return;
+      }
+      lastRenderSignature = renderSignature;
       list.innerHTML = visibleTasks.map(task => {
         const progressKey = task.executionId || task.id;
-        const runtimeStatus = task.lifecycle === 'stopping' ? 'Stopping…' : task.lifecycle === 'awaiting-task-end' ? 'Process ended · waiting for task end' : task.lifecycle === 'stale' ? 'Stale · execution is no longer observable' : task.isRunning ? (task.isBackground ? 'Watch · ' : '') + format(task.elapsedMs) + (task.elapsedBasis === 'since-reload' ? ' · since reload' : '') + (task.overtimeMs ? ' · ' + format(task.overtimeMs) + ' over plan' : '') : task.lastOutcome === 'failed' ? 'Failed' + (task.lastExitCode !== undefined ? ' · exit code ' + task.lastExitCode : '') : task.lastOutcome === 'cancelled' ? 'Cancelled' + (task.lastRunDurationMs ? ' after ' + format(task.lastRunDurationMs) : '') : task.lastOutcome === 'unknown' ? 'Unknown outcome' : task.lastOutcome === 'stale' ? 'Stale · no end event' : task.lastDurationMs ? 'Last run ' + format(task.lastDurationMs) : 'No run history yet';
-        const dependencyNote = dependencyLabel(task);
-        const status = runtimeStatus + (dependencyNote ? ' · ' + dependencyNote : '');
-        const planned = task.isBackground && task.isRunning ? 'Runs continuously' : task.plannedMs ? 'Plan ' + format(task.plannedMs) : task.isRunning ? 'Learning duration' : 'Plan will be learned';
+        const status = statusText(task);
+        const planned = plannedText(task);
         const icon = task.lifecycle === 'stopping' ? '…' : task.lifecycle === 'awaiting-task-end' ? '…' : task.lifecycle === 'stale' ? '?' : task.isRunning ? '●' : task.lastOutcome === 'failed' ? '!' : task.lastOutcome === 'cancelled' ? '–' : task.lastOutcome === 'unknown' ? '?' : task.lastDurationMs ? '✓' : '·';
         const actionId = task.isRunning ? task.executionId : task.id;
         const encodedActionId = encodeURIComponent(actionId || task.id);
@@ -1404,11 +1545,10 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const stateClass = task.lifecycle === 'awaiting-task-end' ? 'awaiting' : task.isRunning ? 'running' : task.progressState === 'completed' ? 'completed' : task.lifecycle === 'stale' || task.lastOutcome === 'stale' ? 'stale' : task.lastOutcome === 'failed' ? 'failed' : task.lastOutcome === 'cancelled' ? 'cancelled' : task.lastOutcome === 'unknown' ? 'unknown' : '';
         const dependencyClass = task.dependencyState ? ' dependency-' + task.dependencyState : '';
         const executionLabel = task.executionId ? ' · ' + escapeHtml(task.executionId) : '';
-        const availableActions = task.isRunning ? 'Stop, restart, and edit task definition.' : task.source === 'Workspace' ? 'Run, restart, and edit task definition.' : 'Run or restart task.';
-        const accessibleLabel = escapeHtml([task.name, task.source, task.group, task.workspaceFolderName, status, planned, 'Available actions: ' + availableActions].filter(Boolean).join('. '));
+        const accessibleLabel = escapeHtml(accessibleTaskLabel(task, status, planned));
         const progressValue = indeterminate ? '' : ' aria-valuenow="' + Math.round(barWidth) + '"';
-        return '<article class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" aria-label="' + accessibleLabel + '">' +
-          '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><span class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</span><span class="task-actions">' + action + restartAction + editAction + '</span></div>' +
+        return '<article class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" tabindex="-1" data-task-id="' + escapeHtml(task.id) + '" data-execution-id="' + escapeHtml(task.executionId || '') + '" aria-label="' + accessibleLabel + '">' +
+          '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><h2 class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</h2><span class="task-actions">' + action + restartAction + editAction + '</span></div>' +
           '<div class="sub" title="' + escapeHtml(task.source + ' · ' + task.group + (task.workspaceFolderName ? ' · ' + task.workspaceFolderName : '')) + '">' + escapeHtml(task.source) + ' · ' + escapeHtml(task.group) + (task.workspaceFolderName ? ' · ' + escapeHtml(task.workspaceFolderName) : '') + (task.isDependency ? ' · Child' : task.dependsOn.length ? ' · Depends on ' + escapeHtml(task.dependsOn.join(', ')) + ' (' + escapeHtml(task.dependsOrder) + ')' : '') + executionLabel + (task.orphaned ? ' · Orphaned' : '') + '</div>' +
           '<div class="bar" role="progressbar" aria-label="Progress for ' + escapeHtml(task.name) + '" aria-valuemin="0" aria-valuemax="100"' + progressValue + ' aria-valuetext="' + escapeHtml(status) + '"><div class="fill' + (indeterminate ? ' indeterminate' : '') + '" data-progress-id="' + progressId + '" data-planned-ms="' + plannedMs + '" style="width:' + barWidth + '%"></div></div>' +
           '<div class="meta"><span class="' + (task.overtimeMs ? 'late' : '') + '">' + escapeHtml(status) + '</span><span>' + escapeHtml(planned) + '</span></div>' +
@@ -1420,6 +1560,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         if (!encodedId) return;
         vscode.postMessage({ command: target.dataset.action, id: decodeURIComponent(encodedId) });
       }));
+      restoreListFocus(focusBookmark);
       if (list.querySelector('.fill.indeterminate')) startProgressAnimation();
     }
     function announceStateChanges(tasks) {
