@@ -17,14 +17,14 @@ Run once for each VS Code version, with a distinct profile directory for each on
 ```powershell
 $vsix = (Resolve-Path '.\tasks-sidebar-<version>.vsix').Path
 $runId = [guid]::NewGuid().ToString('N')
-$profile = Join-Path $env:TEMP ("tasks-sidebar-smoke-stable-" + $runId)
-if (Test-Path $profile) { throw "Smoke profile already exists: $profile" }
-$data = Join-Path $profile 'user-data'
-$extensions = Join-Path $profile 'extensions'
+$smokeProfileDir = Join-Path $env:TEMP ("tasks-sidebar-smoke-stable-" + $runId)
+if (Test-Path $smokeProfileDir) { throw "Smoke profile already exists: $smokeProfileDir" }
+$smokeDataDir = Join-Path $smokeProfileDir 'user-data'
+$smokeExtensionsDir = Join-Path $smokeProfileDir 'extensions'
 $fixture = (Resolve-Path '.\test\manual-release\fixtures\valid').Path
 
-code --user-data-dir $data --extensions-dir $extensions --install-extension $vsix --force
-code --user-data-dir $data --extensions-dir $extensions --new-window $fixture
+code --user-data-dir $smokeDataDir --extensions-dir $smokeExtensionsDir --install-extension $vsix --force
+code --user-data-dir $smokeDataDir --extensions-dir $smokeExtensionsDir --new-window $fixture
 ```
 
 For VS Code 1.85.0, use a separate unique profile (change the prefix to `tasks-sidebar-smoke-1.85-`) and the 1.85.0 CLI. The GUID makes each run start with a new user-data and extensions directory; do not reuse a profile from an earlier run. In each window, open the **Tasks** Activity Bar view and confirm its header shows the candidate version. The candidate installation, version label, and opened view must all refer to the same isolated profile.
@@ -57,7 +57,7 @@ Run these cases against the installed VSIX at both versions recorded above. Mark
 | M10 | Search by task name, provider, group, and folder. Exercise All, Running, Failed, Completed, Unknown/stale, and External providers filters; reset the view. Exercise name, status, elapsed, and folder sort (use the multi-root fixture for folder sort). | Each search/filter narrows the visible cards correctly; reset restores them. Use an Unknown/stale card if M11 produces one; if none is produced, record that case as unavailable and verify the filter's no-match state without claiming unknown-card coverage. Sort order changes deterministically. | Pending |
 | M11 | While **Long runner A** is running, run **Developer: Reload Window**. | If VS Code still reports the execution, it returns as running with elapsed time since reload. If VS Code no longer reports it, the outcome is unknown/stale after the grace period, never success. Do not infer that reload stopped the process. | Pending |
 | M12 | Open `fixtures/invalid`. | The malformed task is not offered as runnable and is never shown as successful. Record the actual VS Code/parser warning or empty/retry state; reopen `fixtures/valid` and Refresh to confirm recovery. | Pending |
-| M13 | In the isolated profile, close the VS Code window, run `code --user-data-dir $data --extensions-dir $extensions --uninstall-extension local.tasks-sidebar`, then `code --user-data-dir $data --extensions-dir $extensions --install-extension $vsix --force`; reopen `fixtures/valid` and activate the view again. | Install and activation succeed after reinstall, and the header still shows the expected candidate version. | Pending |
+| M13 | In the isolated profile, close the VS Code window, run `code --user-data-dir $smokeDataDir --extensions-dir $smokeExtensionsDir --uninstall-extension local.tasks-sidebar`, then `code --user-data-dir $smokeDataDir --extensions-dir $smokeExtensionsDir --install-extension $vsix --force`; reopen `fixtures/valid` and activate the view again. | Install and activation succeed after reinstall, and the header still shows the expected candidate version. | Pending |
 
 The extension does not allow starting a second workspace execution of the same logical task from its own card while that task is already live. M06 therefore starts two different long-running definitions and checks that concrete executions remain independent.
 
