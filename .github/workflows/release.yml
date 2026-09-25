@@ -99,6 +99,27 @@ jobs:
         env:
           VSCODE_VERSION: ${{ matrix.vscode_version }}
         run: npm run test:extension
+      - name: Package VSIX candidate
+        run: npm run package
+
+      - name: Install and probe VSIX in VS Code (Linux)
+        if: runner.os == 'Linux'
+        env:
+          VSCODE_VERSION: ${{ matrix.vscode_version }}
+        run: xvfb-run -a npm run test:vsix
+
+      - name: Install and probe VSIX in VS Code
+        if: runner.os != 'Linux'
+        env:
+          VSCODE_VERSION: ${{ matrix.vscode_version }}
+        run: npm run test:vsix
+
+      - name: Upload VSIX installation probe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-install-probe-${{ matrix.os }}-${{ matrix.vscode_version }}
+          path: vsix-install-probe.json
+          if-no-files-found: error
 
   package:
     name: Package and verify VSIX
