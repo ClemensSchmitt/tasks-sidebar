@@ -1178,7 +1178,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .actions { display: flex; gap: 4px; }
     button { min-width: 28px; min-height: 28px; border: 0; color: inherit; background: transparent; cursor: pointer; border-radius: 6px; padding: 5px 7px; font: inherit; }
     button:hover { background: var(--vscode-toolbar-hoverBackground); }
-    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .primary { background: color-mix(in srgb, var(--violet) 16%, transparent); color: var(--violet); }
     .primary:hover { background: color-mix(in srgb, var(--violet) 27%, transparent); }
     .board-tools { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin: 0 0 10px; }
@@ -1249,7 +1249,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     @media (forced-colors: active) {
       body, .task, .empty-card, .search, .view-select { color: CanvasText; border-color: CanvasText; background: Canvas; }
       button, input, select, .meta, .sub, .host, .empty-hint { color: CanvasText; }
-      button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid Highlight; }
+      button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid Highlight; }
       .fill { background: Highlight; }
       .glyph { color: CanvasText; border: 1px solid CanvasText; }
     }
@@ -1276,6 +1276,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     </div>
   </div>
   <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="warning"></div>
   <main id="list" tabindex="-1" aria-label="Task board" aria-live="off" aria-busy="true"><div class="empty"><strong>Loading tasks…</strong>Looking for tasks from .vscode/tasks.json.</div></main>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -1284,6 +1285,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     const filter = document.getElementById('filter');
     const sort = document.getElementById('sort');
     const announcer = document.getElementById('announcer');
+    const warningRegion = document.getElementById('warning');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let allTasks = [];
     let query = '';
@@ -1295,6 +1297,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     let receivedInitialSnapshot = false;
     let announcedStates = new Map();
     const progressClocks = new Map();
+    let lastRenderSignature = '';
     reducedMotion.addEventListener('change', event => {
       if (event.matches && progressFrame) {
         cancelAnimationFrame(progressFrame);
@@ -1328,16 +1331,87 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       else clearWarning();
     });
     function clearWarning() {
-      list.querySelector('.inline-alert')?.remove();
+      const retryWasFocused = document.activeElement?.id === 'discoveryRetry';
+      warningRegion?.replaceChildren();
+      if (retryWasFocused) list.focus({ preventScroll: true });
     }
     function renderWarning(message) {
-      clearWarning();
+      if (!warningRegion) return;
+      const current = warningRegion.querySelector('.inline-alert');
+      if (current && current.dataset.message === message) return;
+      const retryWasFocused = document.activeElement?.id === 'discoveryRetry';
       const alert = document.createElement('div');
       alert.className = 'inline-alert';
+      alert.dataset.message = message;
       alert.setAttribute('role', 'alert');
-      alert.innerHTML = '<span class="inline-alert-copy">' + escapeHtml(message) + '</span><button type="button">Retry</button>';
-      list.prepend(alert);
+      alert.innerHTML = '<span class="inline-alert-copy">' + escapeHtml(message) + '</span><button id="discoveryRetry" type="button" aria-label="Retry task discovery">Retry</button>';
+      warningRegion.replaceChildren(alert);
       alert.querySelector('button')?.addEventListener('click', refresh);
+      if (retryWasFocused) document.getElementById('discoveryRetry')?.focus({ preventScroll: true });
+    }
+    function runtimeStatus(task) {
+      if (task.lifecycle === 'stopping') return 'Stopping…';
+      if (task.lifecycle === 'awaiting-task-end') return 'Process ended · waiting for task end';
+      if (task.lifecycle === 'stale') return 'Stale · execution is no longer observable';
+      if (task.isRunning) return (task.isBackground ? 'Watch · ' : '') + format(task.elapsedMs) + (task.elapsedBasis === 'since-reload' ? ' · since reload' : '') + (task.overtimeMs ? ' · ' + format(task.overtimeMs) + ' over plan' : '');
+      if (task.lastOutcome === 'failed') return 'Failed' + (task.lastExitCode !== undefined ? ' · exit code ' + task.lastExitCode : '');
+      if (task.lastOutcome === 'cancelled') return 'Cancelled' + (task.lastRunDurationMs ? ' after ' + format(task.lastRunDurationMs) : '');
+      if (task.lastOutcome === 'unknown') return 'Unknown outcome';
+      if (task.lastOutcome === 'stale') return 'Stale · no end event';
+      return task.lastDurationMs ? 'Last run ' + format(task.lastDurationMs) : 'No run history yet';
+    }
+    function statusText(task) {
+      const dependencyNote = dependencyLabel(task);
+      return runtimeStatus(task) + (dependencyNote ? ' · ' + dependencyNote : '');
+    }
+    function plannedText(task) {
+      return task.isBackground && task.isRunning ? 'Runs continuously' : task.plannedMs ? 'Plan ' + format(task.plannedMs) : task.isRunning ? 'Learning duration' : 'Plan will be learned';
+    }
+    function availableActionsText(task) {
+      const actions = [];
+      if (task.isRunning) {
+        if (!task.isStopping && task.lifecycle !== 'awaiting-task-end') actions.push('Stop');
+      } else {
+        actions.push('Run');
+      }
+      if (task.isRunning || task.lastOutcome) actions.push('Restart');
+      if (task.source === 'Workspace') actions.push('Edit task definition');
+      return actions.length ? actions.join(', ') : 'No actions available';
+    }
+    function accessibleTaskLabel(task, status, planned) {
+      return [task.name, task.source, task.group, task.workspaceFolderName, status, planned, 'Available actions: ' + availableActionsText(task)].filter(Boolean).join('. ');
+    }
+    function updateTaskCards(tasks, renderTime) {
+      const cards = Array.from(list.querySelectorAll('article[data-task-id]'));
+      tasks.forEach(task => {
+        const card = cards.find(candidate =>
+          candidate.getAttribute('data-task-id') === task.id &&
+          (candidate.getAttribute('data-execution-id') || '') === (task.executionId || '')
+        );
+        if (!card) return;
+        const status = statusText(task);
+        const planned = plannedText(task);
+        card.setAttribute('aria-label', accessibleTaskLabel(task, status, planned));
+        const meta = card.querySelectorAll('.meta span');
+        if (meta[0]) {
+          meta[0].textContent = status;
+          meta[0].classList.toggle('late', Boolean(task.overtimeMs));
+        }
+        if (meta[1]) meta[1].textContent = planned;
+        const bar = card.querySelector('.bar');
+        const fill = card.querySelector('.fill');
+        if (!bar || !fill) return;
+        const progressKey = task.executionId || task.id;
+        const clock = progressClocks.get(progressKey);
+        const locallyElapsed = task.isRunning && clock ? Math.max(clock.lastElapsedMs, renderTime - clock.startedAt) : task.elapsedMs;
+        const indeterminate = task.isRunning && task.progressState === 'unknown';
+        const barWidth = indeterminate ? 100 : task.isRunning && task.plannedMs ? Math.min(100, locallyElapsed / task.plannedMs * 100) : task.progress;
+        fill.style.width = barWidth + '%';
+        if (indeterminate) bar.removeAttribute('aria-valuenow');
+        else bar.setAttribute('aria-valuenow', String(Math.round(barWidth)));
+        bar.setAttribute('aria-valuetext', status);
+      });
+      if (list.querySelector('.fill.indeterminate')) startProgressAnimation();
     }
     function captureListFocus() {
       const active = document.activeElement;
@@ -1378,6 +1452,8 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       announceStateChanges(tasks);
       list.setAttribute('aria-busy', 'false');
       if (!tasks.length) {
+        if (lastRenderSignature === 'empty') return;
+        lastRenderSignature = 'empty';
         list.innerHTML = '<section class="empty empty-state">' +
           '<div class="empty-ambient" aria-hidden="true"></div>' +
           '<div class="empty-card">' +
@@ -1396,6 +1472,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       }
       const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort);
       if (!visibleTasks.length) {
+        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedSort]);
+        if (lastRenderSignature === emptySignature) return;
+        lastRenderSignature = emptySignature;
         list.innerHTML = '<div class="filtered-empty" role="status"><strong>No matching tasks</strong><br><span>Change the search or filters to see more tasks.</span></div>';
         restoreListFocus(focusBookmark);
         return;
@@ -1419,12 +1498,25 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
           progressClocks.delete(progressKey);
         }
       });
+      const renderSignature = JSON.stringify([
+        query, selectedFilter, selectedSort,
+        ...visibleTasks.map(task => [
+          task.id, task.executionId, task.name, task.source, task.group, task.workspaceFolderName,
+          task.isBackground, task.isDependency, task.dependsOn, task.dependsOrder, task.dependencyIds,
+          task.dependencyState, task.dependencyFailure, task.isRunning, task.isStopping, task.lifecycle,
+          task.orphaned, task.progressState, task.plannedMs, task.lastDurationMs, task.runCount,
+          task.lastOutcome, task.lastRunDurationMs, task.lastExitCode, Boolean(task.overtimeMs), task.elapsedBasis
+        ])
+      ]);
+      if (renderSignature === lastRenderSignature) {
+        updateTaskCards(visibleTasks, renderTime);
+        return;
+      }
+      lastRenderSignature = renderSignature;
       list.innerHTML = visibleTasks.map(task => {
         const progressKey = task.executionId || task.id;
-        const runtimeStatus = task.lifecycle === 'stopping' ? 'Stopping…' : task.lifecycle === 'awaiting-task-end' ? 'Process ended · waiting for task end' : task.lifecycle === 'stale' ? 'Stale · execution is no longer observable' : task.isRunning ? (task.isBackground ? 'Watch · ' : '') + format(task.elapsedMs) + (task.elapsedBasis === 'since-reload' ? ' · since reload' : '') + (task.overtimeMs ? ' · ' + format(task.overtimeMs) + ' over plan' : '') : task.lastOutcome === 'failed' ? 'Failed' + (task.lastExitCode !== undefined ? ' · exit code ' + task.lastExitCode : '') : task.lastOutcome === 'cancelled' ? 'Cancelled' + (task.lastRunDurationMs ? ' after ' + format(task.lastRunDurationMs) : '') : task.lastOutcome === 'unknown' ? 'Unknown outcome' : task.lastOutcome === 'stale' ? 'Stale · no end event' : task.lastDurationMs ? 'Last run ' + format(task.lastDurationMs) : 'No run history yet';
-        const dependencyNote = dependencyLabel(task);
-        const status = runtimeStatus + (dependencyNote ? ' · ' + dependencyNote : '');
-        const planned = task.isBackground && task.isRunning ? 'Runs continuously' : task.plannedMs ? 'Plan ' + format(task.plannedMs) : task.isRunning ? 'Learning duration' : 'Plan will be learned';
+        const status = statusText(task);
+        const planned = plannedText(task);
         const icon = task.lifecycle === 'stopping' ? '…' : task.lifecycle === 'awaiting-task-end' ? '…' : task.lifecycle === 'stale' ? '?' : task.isRunning ? '●' : task.lastOutcome === 'failed' ? '!' : task.lastOutcome === 'cancelled' ? '–' : task.lastOutcome === 'unknown' ? '?' : task.lastDurationMs ? '✓' : '·';
         const actionId = task.isRunning ? task.executionId : task.id;
         const encodedActionId = encodeURIComponent(actionId || task.id);
@@ -1440,9 +1532,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const stateClass = task.lifecycle === 'awaiting-task-end' ? 'awaiting' : task.isRunning ? 'running' : task.progressState === 'completed' ? 'completed' : task.lifecycle === 'stale' || task.lastOutcome === 'stale' ? 'stale' : task.lastOutcome === 'failed' ? 'failed' : task.lastOutcome === 'cancelled' ? 'cancelled' : task.lastOutcome === 'unknown' ? 'unknown' : '';
         const dependencyClass = task.dependencyState ? ' dependency-' + task.dependencyState : '';
         const executionLabel = task.executionId ? ' · ' + escapeHtml(task.executionId) : '';
-        const stopAvailable = task.isRunning && !task.isStopping && task.lifecycle !== 'awaiting-task-end';
-        const availableActions = stopAvailable ? 'Stop, restart, and edit task definition.' : task.isRunning ? 'Restart and edit task definition.' : task.source === 'Workspace' ? 'Run, restart, and edit task definition.' : 'Run or restart task.';
-        const accessibleLabel = escapeHtml([task.name, task.source, task.group, task.workspaceFolderName, status, planned, 'Available actions: ' + availableActions].filter(Boolean).join('. '));
+        const accessibleLabel = escapeHtml(accessibleTaskLabel(task, status, planned));
         const progressValue = indeterminate ? '' : ' aria-valuenow="' + Math.round(barWidth) + '"';
         return '<article class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" tabindex="-1" data-task-id="' + escapeHtml(task.id) + '" data-execution-id="' + escapeHtml(task.executionId || '') + '" aria-label="' + accessibleLabel + '">' +
           '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><h2 class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</h2><span class="task-actions">' + action + restartAction + editAction + '</span></div>' +
