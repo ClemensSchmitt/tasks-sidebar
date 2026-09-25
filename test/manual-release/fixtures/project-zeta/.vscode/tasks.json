@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Folder sort zeta",
+      "type": "process",
+      "command": "node",
+      "args": ["-e", "console.log('FOLDER_ZETA')"],
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
