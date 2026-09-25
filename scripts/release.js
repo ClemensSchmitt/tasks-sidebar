@@ -179,16 +179,19 @@ function inspectVsix(vsixPath) {
     'extension/out/runtime.js',
     'extension/resources/tasks.svg',
     'extension/resources/marketplace-icon.png',
-    'extension/README.md',
-    'extension/CHANGELOG.md',
-    'extension/LICENSE',
+    'extension/readme.md',
+    'extension/changelog.md',
     getExtensionPackagePath(bundledManifest.main, 'main entry point'),
     getExtensionPackagePath(bundledManifest.icon, 'Marketplace icon'),
   ]);
   for (const container of containers) {
     if (container.icon) requiredFiles.add(getExtensionPackagePath(container.icon, 'Activity Bar icon'));
   }
-  const missing = [...requiredFiles].filter(name => !files.includes(name));
+  const licenseFile = files.find(name => /^extension\/LICENSE(?:\.txt)?$/i.test(name));
+  if (!licenseFile) throw new Error('VSIX is missing its license file');
+  requiredFiles.add(licenseFile);
+  const fileSet = new Set(files.map(name => name.toLowerCase()));
+  const missing = [...requiredFiles].filter(name => !fileSet.has(name.toLowerCase()));
   if (missing.length) throw new Error('VSIX is missing required package files: ' + missing.join(', '));
 
   const forbiddenPatterns = [
