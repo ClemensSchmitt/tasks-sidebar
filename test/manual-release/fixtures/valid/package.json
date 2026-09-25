@@ -1,0 +1,9 @@
+{
+  "name": "tasks-sidebar-release-smoke-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "sidebar-smoke": "node -e \"console.log('EXTERNAL_NPM_OK')\"",
+    "sidebar-smoke-long": "node -e \"setInterval(() => {}, 1000)\""
+  }
+}
