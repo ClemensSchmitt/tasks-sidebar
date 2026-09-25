@@ -17,4 +17,4 @@ The GitHub repository and issue tracker are private at present. The issue link w
 
 The current code documents WSL, Dev Containers, and Remote SSH as best effort, not certified support. Local Windows, macOS, and Linux are covered by the automated CI matrix on VS Code 1.85.0 and stable. See [Compatibility and remote behavior](README.md#compatibility-and-remote-behavior).
 
-For security-sensitive reports, do not post exploit details or credentials in a public issue. Since the repository is private, contact the project owner through an established private channel.
+For security-sensitive reports, do not post exploit details or credentials in the issue tracker. No private security contact is published, so do not include sensitive information in an issue.
