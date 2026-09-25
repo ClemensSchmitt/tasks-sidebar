@@ -1,7 +1,7 @@
 {
   "name": "tasks-sidebar",
   "displayName": "Tasks Sidebar",
-  "description": "A fresh, visual sidebar for running and understanding Visual Studio Code tasks.",
+  "description": "Browse, run, and track workspace tasks from a dedicated Visual Studio Code sidebar.",
   "version": "0.0.5",
   "publisher": "local",
   "license": "MIT",
@@ -87,5 +87,16 @@
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^3.1.0",
     "typescript": "^5.4.2"
-  }
+  },
+  "homepage": "https://github.com/ClemensSchmitt/tasks-sidebar#readme",
+  "bugs": {
+    "url": "https://github.com/ClemensSchmitt/tasks-sidebar/issues"
+  },
+  "icon": "./resources/marketplace-icon.png",
+  "keywords": [
+    "tasks",
+    "task runner",
+    "task management",
+    "sidebar"
+  ]
 }
