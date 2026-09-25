@@ -1434,6 +1434,19 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
           candidate.getAttribute('data-id') === bookmark.actionId
         );
       }
+      if (!target && bookmark.action && bookmark.taskId) {
+        const actions = Array.from(list.querySelectorAll('[data-action]'));
+        target = actions.find(candidate => {
+          if (candidate.getAttribute('data-action') !== bookmark.action) return false;
+          const card = candidate.closest ? candidate.closest('article[data-task-id]') : undefined;
+          return card?.getAttribute('data-task-id') === bookmark.taskId &&
+            (!bookmark.executionId || card.getAttribute('data-execution-id') === bookmark.executionId);
+        }) || actions.find(candidate => {
+          if (candidate.getAttribute('data-action') !== bookmark.action) return false;
+          const card = candidate.closest ? candidate.closest('article[data-task-id]') : undefined;
+          return card?.getAttribute('data-task-id') === bookmark.taskId;
+        });
+      }
       if (!target && bookmark.executionId) {
         target = Array.from(list.querySelectorAll('article[data-execution-id]')).find(candidate =>
           candidate.getAttribute('data-execution-id') === bookmark.executionId
