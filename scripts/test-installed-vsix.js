@@ -50,10 +50,11 @@ async function main() {
   }
   const extensionId = inspection.extensionId;
   const vscodeVersion = process.env.VSCODE_VERSION || 'stable';
-  const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-sidebar-vsix-probe-'));
-  const extensionsDirectory = path.join(tempDirectory, 'extensions');
-  const userDataDirectory = path.join(tempDirectory, 'user-data');
-  const hostReportPath = path.join(tempDirectory, 'extension-host-report.json');
+  const tempBase = process.platform === 'darwin' ? '/tmp' : os.tmpdir();
+  const tempDirectory = fs.mkdtempSync(path.join(tempBase, 'tsv-'));
+  const extensionsDirectory = path.join(tempDirectory, 'e');
+  const userDataDirectory = path.join(tempDirectory, 'd');
+  const hostReportPath = path.join(tempDirectory, 'r.json');
   fs.mkdirSync(extensionsDirectory, { recursive: true });
   fs.mkdirSync(userDataDirectory, { recursive: true });
 
