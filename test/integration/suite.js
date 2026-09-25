@@ -121,7 +121,7 @@ async function run() {
   assert.match(html, /const focusBookmark = captureListFocus\(\);/);
   assert.match(html, /candidate\.getAttribute\('data-action'\) === bookmark\.action/);
   assert.match(html, /candidate\.getAttribute\('data-id'\) === bookmark\.actionId/);
-  assert.match(html, /target\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(html, /\(target \|\| list\)\.focus\(\{ preventScroll: true \}\)/);
   assert.match(html, /stopAvailable \? 'Stop, restart, and edit task definition\.' : task\.isRunning \? 'Restart and edit task definition\.'/);
   assert.match(html, /if \(event\.matches && progressFrame\) \{\s*cancelAnimationFrame\(progressFrame\);/);
 
