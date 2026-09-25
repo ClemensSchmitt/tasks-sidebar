@@ -100,15 +100,128 @@ function readZipEntry(zip, wantedName) {
   throw new Error(`VSIX is missing ${wantedName}`);
 }
 
-function verifyVsix(vsixPath, expectedVersion) {
+function listZipEntries(zip) {
+  if (!Buffer.isBuffer(zip) || zip.length < 22) throw new Error('VSIX is not a valid ZIP archive');
+  let eocd = -1;
+  for (let i = zip.length - 22; i >= Math.max(0, zip.length - 65557); i--) {
+    if (zip.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('VSIX is not a valid ZIP archive (end record missing)');
+  const disk = zip.readUInt16LE(eocd + 4);
+  const directoryDisk = zip.readUInt16LE(eocd + 6);
+  const diskEntries = zip.readUInt16LE(eocd + 8);
+  const count = zip.readUInt16LE(eocd + 10);
+  const size = zip.readUInt32LE(eocd + 12);
+  const start = zip.readUInt32LE(eocd + 16);
+  if (disk !== 0 || directoryDisk !== 0 || diskEntries !== count || count === 0xffff || start === 0xffffffff) {
+    throw new Error('VSIX uses an unsupported multi-disk or ZIP64 archive');
+  }
+  if (start + size > eocd) throw new Error('VSIX contains an invalid ZIP directory range');
+  let offset = start;
+  const names = [];
+  for (let i = 0; i < count; i++) {
+    if (offset + 46 > eocd || zip.readUInt32LE(offset) !== 0x02014b50) {
+      throw new Error('VSIX contains a truncated or invalid ZIP directory entry');
+    }
+    const nameLength = zip.readUInt16LE(offset + 28);
+    const extraLength = zip.readUInt16LE(offset + 30);
+    const commentLength = zip.readUInt16LE(offset + 32);
+    const entryLength = 46 + nameLength + extraLength + commentLength;
+    if (offset + entryLength > eocd) throw new Error('VSIX contains a truncated ZIP directory entry');
+    const name = zip.toString('utf8', offset + 46, offset + 46 + nameLength);
+    if (names.includes(name)) throw new Error('VSIX contains duplicate ZIP entries: ' + name);
+    names.push(name);
+    offset += entryLength;
+  }
+  if (offset !== start + size) throw new Error('VSIX contains an inconsistent ZIP directory size');
+  return names.filter(name => !name.endsWith('/')).sort();
+}
+
+function getExtensionPackagePath(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error('VSIX extension package.json has no ' + label);
+  const relative = value.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!relative || relative.startsWith('/') || relative.split('/').includes('..')) {
+    throw new Error('VSIX extension package.json has an unsafe ' + label + ' path');
+  }
+  return 'extension/' + relative;
+}
+
+function inspectVsix(vsixPath) {
   const zip = fs.readFileSync(vsixPath);
+  const files = listZipEntries(zip);
   const bundledManifest = JSON.parse(readZipEntry(zip, 'extension/package.json').toString('utf8'));
   const vsixManifest = readZipEntry(zip, 'extension.vsixmanifest').toString('utf8');
-  const identity = vsixManifest.match(/<Identity\b[^>]*\bVersion=["']([^"']+)["']/i);
-  if (!identity) throw new Error('VSIX extension.vsixmanifest has no Identity Version');
-  if (bundledManifest.version !== expectedVersion || identity[1] !== expectedVersion) {
-    throw new Error(`VSIX version mismatch: package.json=${bundledManifest.version}, VSIX Identity=${identity[1]}, expected=${expectedVersion}`);
+  const identityTag = vsixManifest.match(/<Identity\b[^>]*>/i);
+  if (!identityTag) throw new Error('VSIX extension.vsixmanifest has no Identity');
+  const identityVersion = identityTag[0].match(/\bVersion=["']([^"']+)["']/i)?.[1];
+  const identityId = identityTag[0].match(/\bId=["']([^"']+)["']/i)?.[1];
+  const identityPublisher = identityTag[0].match(/\bPublisher=["']([^"']+)["']/i)?.[1];
+  if (!identityVersion || !identityId || !identityPublisher) {
+    throw new Error('VSIX extension.vsixmanifest Identity must include Id, Publisher, and Version');
   }
+  if (identityId !== bundledManifest.name || identityPublisher !== bundledManifest.publisher) {
+    throw new Error('VSIX identity does not match extension/package.json');
+  }
+
+  const views = bundledManifest.contributes?.views?.tasksSidebar;
+  const containers = bundledManifest.contributes?.viewsContainers?.activitybar;
+  if (!Array.isArray(views) || !views.some(view => view.id === 'tasksSidebar.view' && view.type === 'webview')) {
+    throw new Error('VSIX package.json is missing the Tasks Sidebar webview contribution');
+  }
+  if (!Array.isArray(containers) || !containers.some(container => container.id === 'tasksSidebar')) {
+    throw new Error('VSIX package.json is missing the Tasks Activity Bar container');
+  }
+
+  const requiredFiles = new Set([
+    'extension/package.json',
+    'extension.vsixmanifest',
+    'extension/out/extension.js',
+    'extension/out/runtime.js',
+    'extension/resources/tasks.svg',
+    'extension/resources/marketplace-icon.png',
+    'extension/README.md',
+    'extension/CHANGELOG.md',
+    'extension/LICENSE',
+    getExtensionPackagePath(bundledManifest.main, 'main entry point'),
+    getExtensionPackagePath(bundledManifest.icon, 'Marketplace icon'),
+  ]);
+  for (const container of containers) {
+    if (container.icon) requiredFiles.add(getExtensionPackagePath(container.icon, 'Activity Bar icon'));
+  }
+  const missing = [...requiredFiles].filter(name => !files.includes(name));
+  if (missing.length) throw new Error('VSIX is missing required package files: ' + missing.join(', '));
+
+  const forbiddenPatterns = [
+    /^extension\/(?:\.git(?:\/|$)|\.github(?:\/|$)|\.vscode(?:\/|$)|src(?:\/|$)|test(?:\/|$)|scripts(?:\/|$)|node_modules(?:\/|$))/i,
+    /^extension\/(?:CLOUD_PROJECT_HANDOFF\.md|RELEASING\.md|tsconfig\.json|package-lock\.json|\.gitignore)$/i,
+    /(?:^|\/)\.env(?:\.[^/]*)?$/i,
+    /(?:^|\/)\.npmrc$/i,
+    /(?:^|\/)\.pypirc$/i,
+    /(?:^|\/)id_(?:rsa|ed25519)(?:\.pub)?$/i,
+    /\.(?:pem|key|p12|pfx)$/i,
+    /(?:^|\/)[^/]*(?:credential|secret)[^/]*$/i,
+    /\.(?:tsbuildinfo|map|log|vsix)$/i,
+  ];
+  const forbidden = files.filter(name => forbiddenPatterns.some(pattern => pattern.test(name)));
+  if (forbidden.length) throw new Error('VSIX contains forbidden development, local, or credential files: ' + forbidden.join(', '));
+
+  return {
+    extensionId: identityPublisher + '.' + identityId,
+    version: bundledManifest.version,
+    identityVersion,
+    entryCount: files.length,
+    requiredFiles: [...requiredFiles].sort(),
+    files,
+  };
+}
+
+function verifyVsix(vsixPath, expectedVersion) {
+  const inspection = inspectVsix(vsixPath);
+  if (inspection.version !== expectedVersion || inspection.identityVersion !== expectedVersion) {
+    throw new Error('VSIX version mismatch: package.json=' + inspection.version +
+      ', VSIX Identity=' + inspection.identityVersion + ', expected=' + expectedVersion);
+  }
+  return inspection;
 }
 
 function verify(directory, tag, vsixPath) {
@@ -148,4 +261,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { bump, bumpVersion, readManifests, verify, verifyVsix };
+module.exports = { bump, bumpVersion, inspectVsix, readManifests, verify, verifyVsix };

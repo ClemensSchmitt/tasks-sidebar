@@ -79,6 +79,7 @@
     "check": "tsc --noEmit -p ./",
     "test": "npm run compile && node --test test/runtime.test.js test/release.test.js",
     "test:extension": "npm run compile && node test/integration/run.js",
+    "test:vsix": "node scripts/test-installed-vsix.js",
     "package": "npm run compile && npx --yes @vscode/vsce package",
     "release:version": "node scripts/release.js"
   },
