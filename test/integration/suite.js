@@ -110,7 +110,20 @@ async function run() {
   assert.match(html, /aria-live="off"/);
   assert.match(html, /aria-label="Search tasks, sources, groups/);
   assert.match(html, /aria-valuetext/);
-  assert.match(html, /v0\.0\.5/);
+  assert.match(html, /v0\\.0\\.5/);
+  assert.match(html, /<html lang="en">/);
+  assert.match(html, /<main id="list" tabindex="-1"/);
+  assert.match(html, /<h2 class="empty-title">/);
+  assert.match(html, /<h2 class="name"/);
+  assert.match(html, /data-task-id=/);
+  assert.match(html, /function captureListFocus\\(\\)/);
+  assert.match(html, /function restoreListFocus\\(bookmark\\)/);
+  assert.match(html, /const focusBookmark = captureListFocus\\(\\);/);
+  assert.match(html, /candidate\\.getAttribute\\('data-action'\\) === bookmark\\.action/);
+  assert.match(html, /candidate\\.getAttribute\\('data-id'\\) === bookmark\\.actionId/);
+  assert.match(html, /target\\.focus\\(\\{ preventScroll: true \\}\\)/);
+  assert.match(html, /stopAvailable \\? 'Stop, restart, and edit task definition\\.' : task\\.isRunning \\? 'Restart and edit task definition\\.'/);
+  assert.match(html, /if \\(event\\.matches && progressFrame\\) \\{\\s*cancelAnimationFrame\\(progressFrame\\);/);
 
   const escaped = extensionModule.createTaskBoardHtml('<script>', 'Host <script>');
   assert.doesNotMatch(escaped, /<span class="version"><script>/);
