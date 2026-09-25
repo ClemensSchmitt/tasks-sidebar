@@ -121,6 +121,9 @@ async function run() {
   assert.match(html, /const focusBookmark = captureListFocus\(\);/);
   assert.match(html, /candidate\.getAttribute\('data-action'\) === bookmark\.action/);
   assert.match(html, /candidate\.getAttribute\('data-id'\) === bookmark\.actionId/);
+  assert.match(html, /if \(!target && bookmark\.action && bookmark\.taskId\) \{/);
+  assert.match(html, /card\?\.getAttribute\('data-task-id'\) === bookmark\.taskId/);
+  assert.match(html, /card\.getAttribute\('data-execution-id'\) === bookmark\.executionId/);
   assert.match(html, /\(target \|\| list\)\.focus\(\{ preventScroll: true \}\)/);
   assert.match(html, /#list:focus-visible, \.task:focus-visible/);
   assert.match(html, /#list:focus-visible, \.task:focus-visible \{ outline: 2px solid Highlight;/);
