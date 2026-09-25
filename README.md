@@ -26,7 +26,7 @@ Add a task to `.vscode/tasks.json` in your workspace:
 }
 ```
 
-Open the **Tasks** activity-bar view. Select the play button on the task card to run it and the stop button to request a stop. If the task list is not current, run **Tasks: Refresh** from the Command Palette. VS Code's normal task configuration rules still apply; see the [VS Code task documentation](https://code.visualstudio.com/docs/editor/tasks).
+Open the **Tasks** activity-bar view. Select the play button on the task card to run it and the stop button to request a stop. If the task list is not current, run **Tasks: Refresh** from the Command Palette. VS Code's normal task configuration rules still apply; see the [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks).
 
 ## Commands and configuration
 
