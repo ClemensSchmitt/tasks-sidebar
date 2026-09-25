@@ -2,10 +2,10 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Folder sort alpha",
+      "label": "Zeta sort task",
       "type": "process",
       "command": "node",
-      "args": ["-e", "console.log('FOLDER_ALPHA')"],
+      "args": ["-e", "console.log('TASK_FROM_PROJECT_ALPHA')"],
       "group": "build",
       "problemMatcher": []
     }
