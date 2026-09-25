@@ -959,7 +959,7 @@ function pruneHistory(history: Record<string, TaskHistory>): void {
   }
 }
 
-class TaskBoardView implements vscode.WebviewViewProvider {
+export class TaskBoardView implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private pending?: TaskSnapshot[];
   private pendingWarning?: string;
@@ -974,26 +974,26 @@ class TaskBoardView implements vscode.WebviewViewProvider {
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
     view.webview.options = { enableScripts: true, localResourceRoots: [this.extensionUri] };
-    view.webview.html = createTaskBoardHtml(this.extensionVersion, this.host);
-    view.webview.onDidReceiveMessage(message => {
-      void (async () => {
-        try {
-          switch (message.command) {
-            case 'run': await this.board.run(String(message.id)); break;
-            case 'stop': await this.board.stop(String(message.id)); break;
-            case 'restart': await this.board.restart(String(message.id)); break;
-            case 'output': await this.board.openTaskOutput(message.id ? String(message.id) : undefined); break;
-            case 'terminal': await this.board.openTaskTerminal(message.id ? String(message.id) : undefined); break;
-            case 'refresh': await this.board.refresh(); break;
-            case 'edit': await this.board.openTasksJson(message.id ? String(message.id) : undefined); break;
-            case 'create': await this.board.createTask(); break;
-          }
-        } catch (error) {
-          this.board.reportError('The sidebar action could not be completed.', error);
-        }
-      })();
-    });
+    view.webview.html = createTaskBoardHtml(this.extensionVersion, this.    view.webview.onDidReceiveMessage(message => this.handleWebviewMessage(message));
+   });
     if (this.pending) this.render(this.pending, this.pendingWarning);
+  }
+
+  private async handleWebviewMessage(message: { command: string; id?: unknown }): Promise<void> {
+    try {
+      switch (message.command) {
+        case 'run': await this.board.run(String(message.id)); break;
+        case 'stop': await this.board.stop(String(message.id)); break;
+        case 'restart': await this.board.restart(String(message.id)); break;
+        case 'output': await this.board.openTaskOutput(message.id ? String(message.id) : undefined); break;
+        case 'terminal': await this.board.openTaskTerminal(message.id ? String(message.id) : undefined); break;
+        case 'refresh': await this.board.refresh(); break;
+        case 'edit': await this.board.openTasksJson(message.id ? String(message.id) : undefined); break;
+        case 'create': await this.board.createTask(); break;
+      }
+    } catch (error) {
+      this.board.reportError('The sidebar action could not be completed.', error);
+    }
   }
 
   render(snapshots: TaskSnapshot[], warning?: string): void {
