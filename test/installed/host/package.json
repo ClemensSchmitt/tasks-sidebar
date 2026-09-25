@@ -1,0 +1,13 @@
+{
+  "name": "tasks-sidebar-vsix-probe-host",
+  "displayName": "Tasks Sidebar VSIX Probe Host",
+  "publisher": "tasks-sidebar-tests",
+  "version": "0.0.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ]
+}

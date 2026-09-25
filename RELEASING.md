@@ -42,6 +42,19 @@ npm run release:version -- verify --tag v0.0.6 --vsix ./tasks-sidebar-0.0.6.vsix
 Use the version calculated from the current `package.json`; `0.0.6` is only an
 example. Do not reuse or force-update a published tag.
 
+## Installed VSIX verification
+
+For a local release-candidate check, run:
+
+```sh
+npm run package
+npm run test:vsix
+```
+
+The package audit checks the VSIX version and identity, manifest entry point, compiled runtime files, extension icons, Activity Bar view contribution, and required documentation. It rejects source, test fixtures, development scripts, repository metadata, local settings, credential files, source maps, and lockfiles. The test then installs that exact VSIX using the VS Code CLI in newly created extension and user-data directories. A separate Extension Host test confirms the installed extension identity and version, opens the contributed Tasks Activity Bar view, waits for activation, and runs the refresh command.
+
+The CI and release matrices run this probe on VS Code 1.85.0 and the then-current stable version on Ubuntu, macOS, and Windows. Each successful matrix job uploads `vsix-install-probe.json`, which records the actual VS Code version, OS/architecture, VSIX filename and version, package file list, isolated-install check, view command, and activation result. This is an automated Extension Host/API probe; it does not claim a manual visual or assistive-technology review.
+
 ## CI and release gates
 
 Pull requests and pushes to `main` run the validation matrix in `.github/workflows/ci.yml`. To enforce checks before merging, configure these six job names as required status checks:
