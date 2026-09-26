@@ -202,6 +202,27 @@ async function run() {
     message: 'The sidebar action could not be completed.',
     error: method + ' failed'
   })));
+
+  for (const malformedMessage of [
+    undefined,
+    {},
+    { command: 'run' },
+    { command: 'stop', id: '' },
+    { command: 'restart', id: 1 },
+    { command: 'output', id: {} },
+    { command: 'edit', id: null },
+    { command: 'unsupported' }
+  ]) await failingWebviewHarness.send(malformedMessage);
+  assert.deepEqual(failureReports.slice(routeCases.length), [
+    { message: 'The sidebar action could not be completed.', error: 'The sidebar sent an invalid action.' },
+    { message: 'The sidebar action could not be completed.', error: 'The sidebar sent an invalid action.' },
+    { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
+    { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
+    { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
+    { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
+    { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
+    { message: 'The sidebar action could not be completed.', error: 'The sidebar sent an unsupported action.' }
+  ]);
 }
 
 module.exports = { run };
