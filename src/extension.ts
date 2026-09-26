@@ -979,17 +979,31 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
     if (this.pending) this.render(this.pending, this.pendingWarning);
   }
 
-  private async handleWebviewMessage(message: { command: string; id?: unknown }): Promise<void> {
+  private async handleWebviewMessage(message: unknown): Promise<void> {
     try {
+      if (!message || typeof message !== 'object' || !('command' in message) || typeof message.command !== 'string') {
+        throw new Error('The sidebar sent an invalid action.');
+      }
+      const id = 'id' in message ? message.id : undefined;
+      const requiredId = (): string => {
+        if (typeof id !== 'string' || !id.trim()) throw new Error('The selected task is no longer available. Refresh the view and try again.');
+        return id;
+      };
+      const optionalId = (): string | undefined => {
+        if (id === undefined) return undefined;
+        if (typeof id !== 'string' || !id.trim()) throw new Error('The selected task is no longer available. Refresh the view and try again.');
+        return id;
+      };
       switch (message.command) {
-        case 'run': await this.board.run(String(message.id)); break;
-        case 'stop': await this.board.stop(String(message.id)); break;
-        case 'restart': await this.board.restart(String(message.id)); break;
-        case 'output': await this.board.openTaskOutput(message.id ? String(message.id) : undefined); break;
-        case 'terminal': await this.board.openTaskTerminal(message.id ? String(message.id) : undefined); break;
+        case 'run': await this.board.run(requiredId()); break;
+        case 'stop': await this.board.stop(requiredId()); break;
+        case 'restart': await this.board.restart(requiredId()); break;
+        case 'output': await this.board.openTaskOutput(optionalId()); break;
+        case 'terminal': await this.board.openTaskTerminal(optionalId()); break;
         case 'refresh': await this.board.refresh(); break;
-        case 'edit': await this.board.openTasksJson(message.id ? String(message.id) : undefined); break;
+        case 'edit': await this.board.openTasksJson(optionalId()); break;
         case 'create': await this.board.createTask(); break;
+        default: throw new Error('The sidebar sent an unsupported action.');
       }
     } catch (error) {
       this.board.reportError('The sidebar action could not be completed.', error);
