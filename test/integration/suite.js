@@ -302,6 +302,8 @@ async function run() {
     { command: 'render', snapshots: 'not-an-array' },
     { command: 'render', snapshots: [null] },
     { command: 'render', snapshots: [{}] },
+    { command: 'render', snapshots: [{ ...taskSnapshot, id: '' }] },
+    { command: 'render', snapshots: [{ ...taskSnapshot, id: '   ' }] },
     { command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, dependsOn: [null] }] },
     { command: 'refresh', snapshots: [], warning: 'Must be ignored' }
   ]) {
