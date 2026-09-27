@@ -1346,6 +1346,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         typeof snapshot === 'object' &&
         !Array.isArray(snapshot) &&
         typeof snapshot.id === 'string' &&
+        snapshot.id.trim().length > 0 &&
         typeof snapshot.name === 'string' &&
         typeof snapshot.source === 'string' &&
         typeof snapshot.group === 'string' &&
