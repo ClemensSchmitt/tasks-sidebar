@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const vm = require('node:vm');
 const vscode = require('vscode');
 const extensionModule = require('../../out/extension.js');
 
@@ -53,6 +54,75 @@ function createWebviewHarness(board) {
     send(message) {
       assert.ok(receiveMessage, 'The webview must register its message handler.');
       return receiveMessage(message);
+    }
+  };
+}
+
+function createEmbeddedWebviewHarness(html) {
+  const listeners = new Map();
+  const elements = new Map();
+  const postedMessages = [];
+
+  class FakeElement {
+    constructor(id) {
+      this.id = id;
+      this.value = '';
+      this.dataset = {};
+      this.style = { setProperty() {} };
+      this.attributes = new Map();
+      this.children = [];
+      this.listeners = new Map();
+      this.classList = { toggle() {} };
+      this.innerHTML = '';
+    }
+    addEventListener(type, listener) { this.listeners.set(type, listener); }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    removeAttribute(name) { this.attributes.delete(name); }
+    replaceChildren(...children) { this.children = children; }
+    querySelector(selector) {
+      if (selector === '.inline-alert') return this.children.find(child => child.className === 'inline-alert');
+      if (selector === 'button') return new FakeElement('discoveryRetry');
+      return null;
+    }
+    querySelectorAll() { return []; }
+    contains() { return false; }
+    focus() {}
+  }
+
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const scriptMatch = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);
+  assert.ok(scriptMatch, 'The webview must contain its executable script.');
+  const context = {
+    acquireVsCodeApi: () => ({ postMessage: message => postedMessages.push(message) }),
+    document: {
+      activeElement: null,
+      getElementById: element,
+      createElement: tag => new FakeElement(tag),
+      querySelectorAll: () => []
+    },
+    window: {
+      matchMedia: () => ({ matches: true, addEventListener() {} }),
+      addEventListener: (type, listener) => listeners.set(type, listener)
+    },
+    performance: { now: () => 1000 },
+    requestAnimationFrame: () => 1,
+    cancelAnimationFrame() {},
+    Map, Set, Array, Math, String, Number, JSON, Promise, encodeURIComponent, decodeURIComponent
+  };
+  new vm.Script(scriptMatch[1], { filename: 'tasks-sidebar-webview.js' }).runInNewContext(context);
+
+  return {
+    list: element('list'),
+    warningRegion: element('warning'),
+    postedMessages,
+    send(data) {
+      const listener = listeners.get('message');
+      assert.ok(listener, 'The webview must register a window message listener.');
+      listener({ data });
     }
   };
 }
@@ -185,6 +255,67 @@ async function run() {
     snapshots: uiSnapshots,
     warning: 'Provider warning'
   }]);
+
+  const embeddedWebview = createEmbeddedWebviewHarness(
+    extensionModule.createTaskBoardHtml('0.0.5', 'Integration test')
+  );
+  const taskSnapshot = {
+    id: 'validated-task',
+    name: 'Validated task',
+    source: 'Workspace',
+    group: 'build',
+    dependsOn: [],
+    dependsOrder: 'all',
+    dependencyIds: [],
+    isDependency: false,
+    isBackground: false,
+    isRunning: false,
+    elapsedMs: 0,
+    progress: 0,
+    progressState: 'idle',
+    isStopping: false,
+    lifecycle: 'idle',
+    orphaned: false,
+    elapsedBasis: 'measured',
+    runCount: 0
+  };
+  embeddedWebview.send({
+    command: 'render',
+    snapshots: [taskSnapshot],
+    warning: 'Some task providers could not be scanned.'
+  });
+  const renderedTaskHtml = embeddedWebview.list.innerHTML;
+  assert.match(renderedTaskHtml, /Validated task/, 'A valid render message should display the task.');
+  assert.equal(
+    embeddedWebview.warningRegion.children[0]?.dataset.message,
+    'Some task providers could not be scanned.',
+    'A valid warning should remain visible.'
+  );
+
+  for (const malformedMessage of [
+    undefined,
+    null,
+    {},
+    { command: 'refresh', snapshots: [] },
+    { command: 'render' },
+    { command: 'render', snapshots: null },
+    { command: 'render', snapshots: 'not-an-array' },
+    { command: 'refresh', snapshots: [], warning: 'Must be ignored' }
+  ]) {
+    assert.doesNotThrow(() => embeddedWebview.send(malformedMessage));
+    assert.equal(embeddedWebview.list.innerHTML, renderedTaskHtml, 'Malformed or unrelated messages must not erase the task board.');
+    assert.equal(
+      embeddedWebview.warningRegion.children[0]?.dataset.message,
+      'Some task providers could not be scanned.',
+      'Malformed or unrelated messages must not clear or replace a warning.'
+    );
+  }
+
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot], warning: 'Updated warning.' });
+  assert.equal(embeddedWebview.warningRegion.children[0]?.dataset.message, 'Updated warning.');
+  embeddedWebview.send({ command: 'render', snapshots: [] });
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Validated task/, 'A valid empty render should clear tasks.');
+  assert.equal(embeddedWebview.warningRegion.children.length, 0, 'A valid warning-free render should clear warnings.');
 
   const failureReports = [];
   const failingBoard = Object.fromEntries(
