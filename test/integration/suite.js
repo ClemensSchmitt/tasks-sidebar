@@ -300,6 +300,9 @@ async function run() {
     { command: 'render' },
     { command: 'render', snapshots: null },
     { command: 'render', snapshots: 'not-an-array' },
+    { command: 'render', snapshots: [null] },
+    { command: 'render', snapshots: [{}] },
+    { command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, dependsOn: [null] }] },
     { command: 'refresh', snapshots: [], warning: 'Must be ignored' }
   ]) {
     assert.doesNotThrow(() => embeddedWebview.send(malformedMessage));

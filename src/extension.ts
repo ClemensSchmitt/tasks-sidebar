@@ -1339,9 +1339,39 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     search?.addEventListener('input', () => { query = search.value; render(allTasks); });
     filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
+    function isTaskSnapshot(snapshot) {
+      const optionalStringKeys = ['workspaceFolderUri', 'workspaceFolderName', 'dependencyState', 'dependencyFailure', 'executionId', 'lastOutcome'];
+      const optionalNumberKeys = ['plannedMs', 'lastDurationMs', 'overtimeMs', 'lastRunDurationMs', 'lastExitCode'];
+      return Boolean(snapshot) &&
+        typeof snapshot === 'object' &&
+        !Array.isArray(snapshot) &&
+        typeof snapshot.id === 'string' &&
+        typeof snapshot.name === 'string' &&
+        typeof snapshot.source === 'string' &&
+        typeof snapshot.group === 'string' &&
+        Array.isArray(snapshot.dependsOn) &&
+        snapshot.dependsOn.every(value => typeof value === 'string') &&
+        typeof snapshot.dependsOrder === 'string' &&
+        Array.isArray(snapshot.dependencyIds) &&
+        snapshot.dependencyIds.every(value => typeof value === 'string') &&
+        typeof snapshot.isBackground === 'boolean' &&
+        typeof snapshot.isDependency === 'boolean' &&
+        typeof snapshot.isRunning === 'boolean' &&
+        typeof snapshot.elapsedMs === 'number' &&
+        typeof snapshot.runCount === 'number' &&
+        typeof snapshot.progress === 'number' &&
+        typeof snapshot.progressState === 'string' &&
+        typeof snapshot.isStopping === 'boolean' &&
+        typeof snapshot.lifecycle === 'string' &&
+        typeof snapshot.orphaned === 'boolean' &&
+        typeof snapshot.elapsedBasis === 'string' &&
+        optionalStringKeys.every(key => snapshot[key] === undefined || typeof snapshot[key] === 'string') &&
+        optionalNumberKeys.every(key => snapshot[key] === undefined || typeof snapshot[key] === 'number');
+    }
     window.addEventListener('message', event => {
       const message = event.data;
-      if (!message || message.command !== 'render' || !Array.isArray(message.snapshots)) return;
+      if (!message || message.command !== 'render' || !Array.isArray(message.snapshots) ||
+        !message.snapshots.every(isTaskSnapshot)) return;
       render(message.snapshots);
       if (message.warning) renderWarning(message.warning);
       else clearWarning();
