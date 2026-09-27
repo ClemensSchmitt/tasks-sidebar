@@ -1340,8 +1340,10 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
     window.addEventListener('message', event => {
-      render(event.data.snapshots || []);
-      if (event.data.warning) renderWarning(event.data.warning);
+      const message = event.data;
+      if (!message || message.command !== 'render' || !Array.isArray(message.snapshots)) return;
+      render(message.snapshots);
+      if (message.warning) renderWarning(message.warning);
       else clearWarning();
     });
     function clearWarning() {
