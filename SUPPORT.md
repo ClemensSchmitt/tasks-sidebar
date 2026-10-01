@@ -1,5 +1,7 @@
 # Support
 
+For symptom-based recovery guidance, see the [Tasks Sidebar troubleshooting chapter](docs/manual/09-troubleshooting.md).
+
 ## Report a bug
 
 Open an issue in the [Tasks Sidebar issue tracker](https://github.com/ClemensSchmitt/tasks-sidebar/issues/new) and describe one problem per issue. Include:

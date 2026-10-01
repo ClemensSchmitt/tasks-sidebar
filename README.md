@@ -2,11 +2,13 @@
 
 A visual VS Code task board for tasks defined in `.vscode/tasks.json`.
 
+For complete product behavior, edge cases and troubleshooting, see the **[Tasks Sidebar handbook](docs/manual/README.md)**.
+
 ## Install
 
-Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/tag/v0.0.5), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
+Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/tag/v0.0.6), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
 
-The latest published GitHub release is **v0.0.5**. This repository's current `main` contains additional changes listed under **Unreleased** in the [changelog](CHANGELOG.md); those changes are not included in the v0.0.5 VSIX. There is no Visual Studio Code Marketplace listing yet.
+The latest published GitHub release is **v0.0.6**. There is no Visual Studio Code Marketplace listing yet.
 
 ## Getting started
 
@@ -58,7 +60,7 @@ The extension uses the official `vscode.tasks.fetchTasks()` API and does not use
 
 The provider/source is always shown. If two providers expose the same display name, they remain distinct when their source or definition differs. Exact duplicate logical definitions are rendered once; parallel `TaskExecution` instances are still represented separately. This avoids duplicate cards without hiding real parallel runs.
 
-`Open task output` delegates to VS Code's selected task output target; `Focus task terminal` focuses VS Code's active task terminal. These are board-level actions, not per-card selectors: VS Code owns the output/terminal mapping for shell, process, compound and remote tasks, so the board does not guess which child terminal belongs to a compound task. A process task may have no terminal to focus.
+`Open task output` delegates target selection to VS Code; `Focus task terminal` focuses VS Code's active terminal. These are board-level actions, not per-card selectors: VS Code owns the output/terminal mapping for shell, process, compound and remote tasks, so the board does not guess which child terminal belongs to a compound task. A process task may have no terminal to focus.
 
 ## Runtime safety
 

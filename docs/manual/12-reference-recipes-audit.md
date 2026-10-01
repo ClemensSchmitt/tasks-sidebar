@@ -418,7 +418,7 @@ The final review cross-checked:
 - manual accessibility procedure;
 - remote smoke procedure;
 - README, CHANGELOG and SUPPORT;
-- the 107 behavior rows in `docs/manual/coverage-matrix.md` from issue #40.
+- the 116 behavior rows in `docs/manual/coverage-matrix.md` from issue #40.
 
 ## Completeness mapping
 
