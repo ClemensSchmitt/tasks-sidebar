@@ -18,7 +18,9 @@ If the runtime version is older or cannot be parsed as a supported semantic vers
 The package declares:
 
 ```json
-"extensionKind": ["workspace"]
+{
+  "extensionKind": ["workspace"]
+}
 ```
 
 Tasks Sidebar is intended to run with the workspace extension host.

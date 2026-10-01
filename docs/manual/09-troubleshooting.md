@@ -70,7 +70,9 @@ Use:
 or enable:
 
 ```json
-"tasksSidebar.includeExternalTasks": true
+{
+  "tasksSidebar.includeExternalTasks": true
+}
 ```
 
 If aggregate task discovery fails, Tasks Sidebar retries provider types from workspace task files plus shell/process. Recovered tasks can remain visible with a warning.
