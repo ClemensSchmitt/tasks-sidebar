@@ -24,7 +24,7 @@ There is currently no Visual Studio Marketplace listing. Installation is therefo
 
 ### Upgrade or reinstall
 
-Installing a newer VSIX with VS Code's normal extension installer replaces the installed package for that profile/host. A release-candidate manual test also verifies uninstall/reinstall as a separate smoke case, but that GUI test record is still pending. Do not treat the existence of the procedure as proof that every manual environment has been run.
+Installing a newer VSIX with VS Code's normal extension installer replaces the installed package for that profile/host. The release-candidate manual test procedure includes uninstall/reinstall as a separate smoke case, but that GUI test record is still pending. Do not treat the existence of the procedure as proof that the case has been run.
 
 In remote workspaces, verify that the extension is installed in the active remote/workspace host rather than only locally. See [Remote hosts](11-compatibility-remote.md).
 
