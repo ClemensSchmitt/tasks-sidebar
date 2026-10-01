@@ -385,6 +385,39 @@ WSL, Dev Containers and Remote SSH rows in test/remote-smoke/README.md are all N
 | filtered-empty / no tasks / loading | VIEW-05, UI-07, UI-08 |
 | warning + Retry | UI-09 |
 
+## 17a. User-facing message and recovery audit
+
+This table cross-checks the user-facing message/error prefixes in `src/extension.ts` against the inventory so that failure paths are not hidden only in source strings.
+
+| User-facing message / condition | Matrix row(s) |
+| --- | --- |
+| VS Code version below 1.85.0 | COMP-01 |
+| External task provider setting could not be changed | DISC-02, ERR-01 |
+| This task is already running | RUN-01 |
+| Tasks could not be read. Refresh the view and try again | RUN-01, ERR-04 |
+| This task is no longer available. Refresh the view | RUN-01, TASKS-02, ERR-04 |
+| The task could not be started: <detail> | RUN-01, ERR-04 |
+| This task is already stopping | RUN-03, RUN-07 |
+| The task could not be stopped | LIFE-06, ERR-05 |
+| Task output could not be opened; inspect Output/Terminal | OUT-01 |
+| Task terminal could not be focused | OUT-02 |
+| Selected task could not be read | TASKS-02, ERR-03 |
+| External task has no workspace tasks.json to edit | TASKS-02 |
+| Open a workspace before editing tasks.json | DISC-05, TASKS-01 |
+| Error while checking/creating/opening/showing tasks.json | TASKS-01, ERR-03 |
+| Open a workspace before creating a task | DISC-05, TASKS-03 |
+| Task could not be created; check permissions/JSON syntax | TASKS-03, TASKS-06, TASKS-07, ERR-03 |
+| Old task history could not be pruned | HIST-05, ERR-06 |
+| Observed task status could not be saved | PERS-01, ERR-06 |
+| Unknown reload task status could not be saved | PERS-03, ERR-06 |
+| Stale task status could not be saved | LIFE-09, ERR-06 |
+| Task history could not be saved | HIST-04, HIST-05, ERR-06 |
+| Task view could not be refreshed after timeout/completion | LIFE-09, ERR-10 |
+| Last valid task snapshot could not be saved | PERS-06, ERR-06 |
+| Sidebar action could not be completed | ERR-07 |
+| Tasks Sidebar could not be updated | ERR-09 |
+| No workspace / provider / tasks.json warning with Retry | DISC-05, ERR-01, ERR-02, ERR-03, UI-09 |
+
 ## 18. Handbook routing
 
 | Handbook issue | Inventory responsibility |
