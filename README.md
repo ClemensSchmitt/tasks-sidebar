@@ -2,11 +2,13 @@
 
 A visual VS Code task board for tasks defined in `.vscode/tasks.json`.
 
+For complete product behavior, edge cases and troubleshooting, see the **[Tasks Sidebar handbook](docs/manual/README.md)**.
+
 ## Install
 
-Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/tag/v0.0.5), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
+Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/tag/v0.0.6), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
 
-The latest published GitHub release is **v0.0.5**. This repository's current `main` contains additional changes listed under **Unreleased** in the [changelog](CHANGELOG.md); those changes are not included in the v0.0.5 VSIX. There is no Visual Studio Code Marketplace listing yet.
+The latest published GitHub release is **v0.0.6**. There is no Visual Studio Code Marketplace listing yet.
 
 ## Getting started
 
