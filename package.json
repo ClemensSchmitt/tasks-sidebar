@@ -3,7 +3,7 @@
   "displayName": "Tasks Sidebar",
   "description": "Browse, run, and track workspace tasks from a dedicated Visual Studio Code sidebar.",
   "version": "0.0.6",
-  "publisher": "local",
+  "publisher": "ClemboMembo",
   "license": "MIT",
   "repository": {
     "type": "git",
