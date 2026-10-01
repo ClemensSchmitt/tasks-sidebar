@@ -4,6 +4,8 @@ Notable user-facing changes are recorded here. Entries under **Unreleased** desc
 
 ## Unreleased
 
+## 0.0.6 — 2026-10-01
+
 - Track task executions by their concrete VS Code execution, including independent controls for parallel runs.
 - Add safe stop-then-start restart behavior and explicit running, stopping, waiting, failed, cancelled, unknown, and stale outcomes. Missing process-end evidence is not reported as success.
 - Improve task discovery recovery, dependency visibility, and history restoration across extension-host reloads.

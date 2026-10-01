@@ -152,7 +152,7 @@ jobs:
             echo "Expected exactly one VSIX, found ${#vsix_files[@]}." >&2
             exit 1
           fi
-          npm run release:version -- verify --tag "$RELEASE_TAG" --vsix "${vsix_files[0]}"
+          npm run release:version -- verify -- --tag "$RELEASE_TAG" --vsix "${vsix_files[0]}"
 
       - name: Record tested source commit
         id: source

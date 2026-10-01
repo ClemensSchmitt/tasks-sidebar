@@ -12,7 +12,7 @@ Release already exists for that tag, publishing stops without replacing it.
 To preview the next patch version locally without changing files:
 
 ```sh
-npm run release:version -- bump --dry-run
+npm run release:version -- bump -- --dry-run
 ```
 
 To update both version manifests for a patch release:
@@ -21,7 +21,8 @@ To update both version manifests for a patch release:
 npm run release:version -- bump
 ```
 
-For a different increment, pass `--type minor` or `--type major`. Check that
+For a different increment, run `npm run release:version -- bump -- --type minor`
+or replace `minor` with `major`. Check that
 both files are clean and run the normal test suite before committing. The
 version command refuses to continue if the manifests disagree. It changes
 only the version fields and does not publish, create a tag, or create a
@@ -36,7 +37,7 @@ The workflow rejects an existing release and never overwrites one. For a local
 verification of a packaged artifact:
 
 ```sh
-npm run release:version -- verify --tag v0.0.6 --vsix ./tasks-sidebar-0.0.6.vsix
+npm run release:version -- verify -- --tag v0.0.6 --vsix ./tasks-sidebar-0.0.6.vsix
 ```
 
 Use the version calculated from the current `package.json`; `0.0.6` is only an
