@@ -60,7 +60,7 @@ The extension uses the official `vscode.tasks.fetchTasks()` API and does not use
 
 The provider/source is always shown. If two providers expose the same display name, they remain distinct when their source or definition differs. Exact duplicate logical definitions are rendered once; parallel `TaskExecution` instances are still represented separately. This avoids duplicate cards without hiding real parallel runs.
 
-`Open task output` delegates to VS Code's selected task output target; `Focus task terminal` focuses VS Code's active task terminal. These are board-level actions, not per-card selectors: VS Code owns the output/terminal mapping for shell, process, compound and remote tasks, so the board does not guess which child terminal belongs to a compound task. A process task may have no terminal to focus.
+`Open task output` delegates target selection to VS Code; `Focus task terminal` focuses VS Code's active terminal. These are board-level actions, not per-card selectors: VS Code owns the output/terminal mapping for shell, process, compound and remote tasks, so the board does not guess which child terminal belongs to a compound task. A process task may have no terminal to focus.
 
 ## Runtime safety
 
