@@ -979,17 +979,31 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
     if (this.pending) this.render(this.pending, this.pendingWarning);
   }
 
-  private async handleWebviewMessage(message: { command: string; id?: unknown }): Promise<void> {
+  private async handleWebviewMessage(message: unknown): Promise<void> {
     try {
+      if (!message || typeof message !== 'object' || !('command' in message) || typeof message.command !== 'string') {
+        throw new Error('The sidebar sent an invalid action.');
+      }
+      const id = 'id' in message ? message.id : undefined;
+      const requiredId = (): string => {
+        if (typeof id !== 'string' || !id.trim()) throw new Error('The selected task is no longer available. Refresh the view and try again.');
+        return id;
+      };
+      const optionalId = (): string | undefined => {
+        if (id === undefined) return undefined;
+        if (typeof id !== 'string' || !id.trim()) throw new Error('The selected task is no longer available. Refresh the view and try again.');
+        return id;
+      };
       switch (message.command) {
-        case 'run': await this.board.run(String(message.id)); break;
-        case 'stop': await this.board.stop(String(message.id)); break;
-        case 'restart': await this.board.restart(String(message.id)); break;
-        case 'output': await this.board.openTaskOutput(message.id ? String(message.id) : undefined); break;
-        case 'terminal': await this.board.openTaskTerminal(message.id ? String(message.id) : undefined); break;
+        case 'run': await this.board.run(requiredId()); break;
+        case 'stop': await this.board.stop(requiredId()); break;
+        case 'restart': await this.board.restart(requiredId()); break;
+        case 'output': await this.board.openTaskOutput(optionalId()); break;
+        case 'terminal': await this.board.openTaskTerminal(optionalId()); break;
         case 'refresh': await this.board.refresh(); break;
-        case 'edit': await this.board.openTasksJson(message.id ? String(message.id) : undefined); break;
+        case 'edit': await this.board.openTasksJson(optionalId()); break;
         case 'create': await this.board.createTask(); break;
+        default: throw new Error('The sidebar sent an unsupported action.');
       }
     } catch (error) {
       this.board.reportError('The sidebar action could not be completed.', error);
@@ -1325,9 +1339,42 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     search?.addEventListener('input', () => { query = search.value; render(allTasks); });
     filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
+    function isTaskSnapshot(snapshot) {
+      const optionalStringKeys = ['workspaceFolderUri', 'workspaceFolderName', 'dependencyState', 'dependencyFailure', 'executionId', 'lastOutcome'];
+      const optionalNumberKeys = ['plannedMs', 'lastDurationMs', 'overtimeMs', 'lastRunDurationMs', 'lastExitCode'];
+      return Boolean(snapshot) &&
+        typeof snapshot === 'object' &&
+        !Array.isArray(snapshot) &&
+        typeof snapshot.id === 'string' &&
+        snapshot.id.trim().length > 0 &&
+        typeof snapshot.name === 'string' &&
+        typeof snapshot.source === 'string' &&
+        typeof snapshot.group === 'string' &&
+        Array.isArray(snapshot.dependsOn) &&
+        snapshot.dependsOn.every(value => typeof value === 'string') &&
+        typeof snapshot.dependsOrder === 'string' &&
+        Array.isArray(snapshot.dependencyIds) &&
+        snapshot.dependencyIds.every(value => typeof value === 'string') &&
+        typeof snapshot.isBackground === 'boolean' &&
+        typeof snapshot.isDependency === 'boolean' &&
+        typeof snapshot.isRunning === 'boolean' &&
+        typeof snapshot.elapsedMs === 'number' &&
+        typeof snapshot.runCount === 'number' &&
+        typeof snapshot.progress === 'number' &&
+        typeof snapshot.progressState === 'string' &&
+        typeof snapshot.isStopping === 'boolean' &&
+        typeof snapshot.lifecycle === 'string' &&
+        typeof snapshot.orphaned === 'boolean' &&
+        typeof snapshot.elapsedBasis === 'string' &&
+        optionalStringKeys.every(key => snapshot[key] === undefined || typeof snapshot[key] === 'string') &&
+        optionalNumberKeys.every(key => snapshot[key] === undefined || typeof snapshot[key] === 'number');
+    }
     window.addEventListener('message', event => {
-      render(event.data.snapshots || []);
-      if (event.data.warning) renderWarning(event.data.warning);
+      const message = event.data;
+      if (!message || message.command !== 'render' || !Array.isArray(message.snapshots) ||
+        !message.snapshots.every(isTaskSnapshot)) return;
+      render(message.snapshots);
+      if (message.warning) renderWarning(message.warning);
       else clearWarning();
     });
     function clearWarning() {
