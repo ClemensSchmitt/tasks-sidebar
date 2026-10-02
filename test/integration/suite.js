@@ -4,7 +4,8 @@ const vm = require('node:vm');
 const vscode = require('vscode');
 const extensionModule = require('../../out/extension.js');
 
-const extensionId = 'local.tasks-sidebar';
+const manifest = require('../../package.json');
+const extensionId = `${manifest.publisher}.${manifest.name}`;
 const taskLabel = 'Tasks Sidebar integration task';
 
 function withTimeout(promise, description) {

@@ -9,11 +9,40 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  compatibility:
+  build:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    name: Build shared VSIX candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run package
+      - run: node --test test/runtime.test.js test/release.test.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-candidate
+          path: |
+            out/
+            *.vsix
+          if-no-files-found: error
+          retention-days: 1
+
+  compatibility:
+    needs: build
     name: CI / ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -43,25 +72,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check
-        run: npm run check
+      - name: Download shared VSIX and compiled extension
+        uses: actions/download-artifact@v4
+        with:
+          name: compatibility-candidate
 
       - name: Runtime tests
-        run: npm test
+        run: node --test test/runtime.test.js test/release.test.js
 
       - name: VS Code extension-host tests (Linux)
         if: runner.os == 'Linux'
         env:
           VSCODE_VERSION: ${{ matrix.vscode_version }}
-        run: xvfb-run -a npm run test:extension
+        run: xvfb-run -a node test/integration/run.js
 
       - name: VS Code extension-host tests
         if: runner.os != 'Linux'
         env:
           VSCODE_VERSION: ${{ matrix.vscode_version }}
-        run: npm run test:extension
-      - name: Package VSIX candidate
-        run: npm run package
+        run: node test/integration/run.js
 
       - name: Install and probe VSIX in VS Code (Linux)
         if: runner.os == 'Linux'
@@ -81,3 +110,17 @@ jobs:
           name: vsix-install-probe-${{ matrix.os }}-${{ matrix.vscode_version }}
           path: vsix-install-probe.json
           if-no-files-found: error
+          retention-days: 3
+
+  checks:
+    name: CI checks
+    needs: [build, compatibility]
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require the build and every compatibility check
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+        run: test "$BUILD_RESULT" = success && test "$COMPATIBILITY_RESULT" = success
