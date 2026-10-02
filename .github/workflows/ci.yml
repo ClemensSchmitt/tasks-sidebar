@@ -28,7 +28,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run package
-      - run: node --test test/runtime.test.js test/release.test.js
+      - run: node --test test/runtime.test.js test/release.test.js test/actions.test.js
       - uses: actions/upload-artifact@v4
         with:
           name: compatibility-candidate
@@ -78,7 +78,7 @@ jobs:
           name: compatibility-candidate
 
       - name: Runtime tests
-        run: node --test test/runtime.test.js test/release.test.js
+        run: node --test test/runtime.test.js test/release.test.js test/actions.test.js
 
       - name: VS Code extension-host tests (Linux)
         if: runner.os == 'Linux'
