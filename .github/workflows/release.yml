@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
   RELEASE_REF: refs/tags/${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
@@ -26,6 +30,7 @@ jobs:
   resolve:
     name: Resolve immutable release commit
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
     steps:
@@ -49,8 +54,9 @@ jobs:
 
   compatibility:
     name: Release validation / ${{ matrix.os }} · VS Code ${{ matrix.vscode_version }}
-    needs: resolve
+    needs: [resolve, package]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -82,25 +88,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check
-        run: npm run check
+      - name: Download shared VSIX and compiled extension
+        uses: actions/download-artifact@v4
+        with:
+          name: compatibility-candidate
 
       - name: Runtime tests
-        run: npm test
+        run: node --test test/runtime.test.js test/release.test.js
 
       - name: VS Code extension-host tests (Linux)
         if: runner.os == 'Linux'
         env:
           VSCODE_VERSION: ${{ matrix.vscode_version }}
-        run: xvfb-run -a npm run test:extension
+        run: xvfb-run -a node test/integration/run.js
 
       - name: VS Code extension-host tests
         if: runner.os != 'Linux'
         env:
           VSCODE_VERSION: ${{ matrix.vscode_version }}
-        run: npm run test:extension
-      - name: Package VSIX candidate
-        run: npm run package
+        run: node test/integration/run.js
 
       - name: Install and probe VSIX in VS Code (Linux)
         if: runner.os == 'Linux'
@@ -120,11 +126,13 @@ jobs:
           name: vsix-install-probe-${{ matrix.os }}-${{ matrix.vscode_version }}
           path: vsix-install-probe.json
           if-no-files-found: error
+          retention-days: 3
 
   package:
     name: Package and verify VSIX
-    needs: [resolve, compatibility]
+    needs: resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
     steps:
@@ -142,6 +150,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Type-check
+        run: npm run check
+
       - name: Build and verify VSIX
         shell: bash
         run: |
@@ -153,6 +164,9 @@ jobs:
             exit 1
           fi
           node scripts/release.js verify --tag "$RELEASE_TAG" --vsix "${vsix_files[0]}"
+
+      - name: Runtime tests before starting the compatibility matrix
+        run: node --test test/runtime.test.js test/release.test.js
 
       - name: Record tested source commit
         id: source
@@ -183,11 +197,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Share the exact release candidate with compatibility tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-candidate
+          path: |
+            out/
+            *.vsix
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
     name: Publish GitHub Release
     if: github.event_name == 'workflow_dispatch' && inputs.publish_release
-    needs: [resolve, package]
+    needs: [resolve, package, compatibility]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
