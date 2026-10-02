@@ -407,3 +407,30 @@ test('out-of-order or missing child events remain unresolved or unknown', () => 
     { name: 'compile', isRunning: false, lastOutcome: 'unknown' }
   ]), { state: 'unknown', failure: 'compile' });
 });
+
+test('task definition navigation preserves JSONC offsets and selects exact labels', () => {
+  const { findTaskDefinitionRange } = require('../out/runtime.js');
+  const text = '{\n // {"label":"target"}\n "version":"2.0.0", "tasks":[\n' +
+    '{"label":"target-extra","command":"echo } ["},\n' +
+    '/* comment */ {"label":"target","options":{"env":{"label":"nested"}},},\n],}';
+  const range = findTaskDefinitionRange(text, 'target');
+  assert.ok(range);
+  assert.equal(JSON.parse(text.slice(range.start, range.end).replace(/,}/g, '}')).label, 'target');
+  assert.equal(text[range.start], '{');
+  assert.equal(text[range.end - 1], '}');
+  assert.equal(findTaskDefinitionRange(text, 'missing'), undefined);
+});
+
+test('task definition navigation rejects duplicate, renamed and nested labels', () => {
+  const { findTaskDefinitionRange } = require('../out/runtime.js');
+  assert.equal(findTaskDefinitionRange('{"tasks":[{"label":"same"},{"label":"same"}]}', 'same'), undefined);
+  assert.equal(findTaskDefinitionRange('{"tasks":[{"label":"renamed"}]}', 'old'), undefined);
+  assert.equal(findTaskDefinitionRange('{"tasks":[{"label":"parent","options":{"label":"child"}}]}', 'child'), undefined);
+  assert.equal(findTaskDefinitionRange('{"other":{"tasks":[{"label":"target"}]}}', 'target'), undefined);
+  assert.throws(() => findTaskDefinitionRange('{invalid', 'target'));
+  for (const folder of ['first', 'second']) {
+    const text = JSON.stringify({ tasks: [{ label: 'same', command: folder }] });
+    const range = findTaskDefinitionRange(text, 'same');
+    assert.equal(JSON.parse(text.slice(range.start, range.end)).command, folder);
+  }
+});

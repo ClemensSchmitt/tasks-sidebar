@@ -546,3 +546,37 @@ export function shouldScheduleStaleCheck(isBackground: boolean, stopRequested: b
 export function isCurrentRefresh(requestRevision: number, currentRevision: number): boolean {
   return requestRevision === currentRevision;
 }
+
+/** Locate a unique direct tasks[] entry without changing JSONC or its offsets. */
+export function findTaskDefinitionRange(input: string, name: string): { start: number; end: number } | undefined {
+  const root = parseJsonc(input) as { tasks?: unknown[] };
+  if (!root || !Array.isArray(root.tasks)) return undefined;
+  // Strings and comments are single tokens, so braces inside them cannot affect depth.
+  const tokens = [...input.matchAll(/"(?:\\.|[^"\\])*"|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|[{}\[\]:,]/g)]
+    .filter(token => !token[0].startsWith('/'));
+  let depth = 0;
+  let arrayDepth = -1;
+  let start: number | undefined;
+  const matches: { start: number; end: number }[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const value = token[0];
+    if (depth === 1 && value.startsWith('"') && JSON.parse(value) === 'tasks' && tokens[index + 1]?.[0] === ':' && tokens[index + 2]?.[0] === '[') {
+      arrayDepth = 2;
+    }
+    if (value === '{' || value === '[') {
+      if (arrayDepth === depth && value === '{') start = token.index!;
+      depth += 1;
+    } else if (value === '}' || value === ']') {
+      if (value === '}' && depth === arrayDepth + 1 && start !== undefined) {
+        const end = token.index! + 1;
+        const task = parseJsonc(input.slice(start, end)) as { label?: unknown; taskName?: unknown };
+        if ((task.label ?? task.taskName) === name) matches.push({ start, end });
+        start = undefined;
+      }
+      if (value === ']' && depth === arrayDepth) arrayDepth = -1;
+      depth -= 1;
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined;
+}
