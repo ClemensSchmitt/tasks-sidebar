@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, observationKey, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
+import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, observationKey, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
 
 type TaskLifecycle = TaskExecutionLifecycle;
 type TaskHistory = {
@@ -142,7 +142,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {}
 
-class TaskBoard {
+export class TaskBoard {
   private view?: TaskBoardView;
   private timer?: NodeJS.Timeout;
   private disposed = false;
@@ -264,19 +264,34 @@ class TaskBoard {
     await this.stop(active.executionId);
   }
 
-  async openTaskOutput(_id?: string): Promise<void> {
-    try {
-      await vscode.commands.executeCommand('workbench.action.tasks.openOutput');
-    } catch (error) {
-      this.reportError('The task output could not be opened. Use the Output or Terminal panel to inspect the last task.', error);
-    }
+  async openTaskOutput(id?: string): Promise<void> {
+    // TaskExecution exposes no terminal/output handle in the public VS Code API.
+    await this.openTaskTerminal(id);
   }
 
   async openTaskTerminal(_id?: string): Promise<void> {
     try {
-      await vscode.commands.executeCommand('workbench.action.terminal.focus');
+      const terminals = vscode.window.terminals;
+      if (!terminals.length) {
+        await vscode.window.showInformationMessage('No terminals are available. Run a task first; its output may appear in a terminal.');
+        return;
+      }
+      const selected = await vscode.window.showQuickPick(
+        terminals.map((terminal, index) => ({
+          label: terminal.name,
+          description: `Terminal ${index + 1}${terminal === vscode.window.activeTerminal ? ' · active' : ''}`,
+          terminal
+        })),
+        { placeHolder: 'Choose a terminal to inspect (task association is unavailable)' }
+      );
+      if (!selected) return;
+      if (!vscode.window.terminals.includes(selected.terminal)) {
+        await vscode.window.showWarningMessage('This terminal has closed. Choose another terminal.');
+        return;
+      }
+      selected.terminal.show(false);
     } catch (error) {
-      this.reportError('The task terminal could not be focused.', error);
+      this.reportError('The selected terminal could not be opened.', error);
     }
   }
 
@@ -328,6 +343,7 @@ class TaskBoard {
 
   async openTasksJson(id?: string): Promise<void> {
     let folder = vscode.workspace.workspaceFolders?.[0];
+    let selectedTask: vscode.Task | undefined;
     if (id) {
       let task: vscode.Task | undefined;
       try {
@@ -340,6 +356,11 @@ class TaskBoard {
         void vscode.window.showWarningMessage('This task is no longer available. Refresh the view.');
         return;
       }
+      if (!isWorkspaceJsonTask(task)) {
+        void vscode.window.showWarningMessage('This task is provided externally and has no editable workspace definition.');
+        return;
+      }
+      selectedTask = task;
       const taskFolder = taskWorkspaceFolder(task);
       if (taskFolder.workspaceFolderUri) {
         folder = vscode.workspace.workspaceFolders?.find(item => item.uri.toString() === taskFolder.workspaceFolderUri);
@@ -370,6 +391,10 @@ class TaskBoard {
         await vscode.workspace.fs.stat(uri);
       } catch (error) {
         if (!(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') throw error;
+        if (selectedTask) {
+          void vscode.window.showWarningMessage('The selected task definition is missing. Refresh the view.');
+          return;
+        }
         operation = 'creating the .vscode folder';
         await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(folder.uri, '.vscode'));
         const template = '{\n  "version": "2.0.0",\n  "tasks": []\n}\n';
@@ -379,7 +404,18 @@ class TaskBoard {
       operation = 'opening tasks.json';
       const document = await vscode.workspace.openTextDocument(uri);
       operation = 'showing tasks.json';
-      await vscode.window.showTextDocument(document);
+      if (selectedTask) {
+        const range = findTaskDefinitionRange(document.getText(), selectedTask.name);
+        if (!range) {
+          void vscode.window.showWarningMessage('The selected task definition is missing or ambiguous. Refresh the view or open tasks.json manually.');
+          return;
+        }
+        const selection = new vscode.Range(document.positionAt(range.start), document.positionAt(range.end));
+        const editor = await vscode.window.showTextDocument(document, { selection });
+        editor.revealRange(selection, vscode.TextEditorRevealType.InCenter);
+      } else {
+        await vscode.window.showTextDocument(document);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown file error';
       this.reportError('Error while ' + operation + '.', message);
@@ -1279,7 +1315,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
 <body>
   <div class="top">
     <div><div class="eyebrow">Workspace flow</div><h1>Tasks <span class="version">v${safeVersion}</span></h1><span class="host">${safeHost}</span></div>
-    <div class="actions" role="group" aria-label="Task actions"><button type="button" id="refresh" title="Refresh tasks" aria-label="Refresh tasks">↻</button><button type="button" id="output" title="Open VS Code task output" aria-label="Open VS Code task output">≋</button><button type="button" id="terminal" title="Focus the active task terminal" aria-label="Focus the active task terminal">⌁</button><button type="button" id="create" class="primary" title="Create task" aria-label="Create task">＋</button><button type="button" id="edit" class="primary" title="Open tasks.json" aria-label="Open tasks.json">✎</button></div>
+    <div class="actions" role="group" aria-label="Task actions"><button type="button" id="refresh" title="Refresh tasks" aria-label="Refresh tasks">↻</button><button type="button" id="output" title="Choose a terminal to inspect output" aria-label="Choose a terminal to inspect output">≋</button><button type="button" id="terminal" title="Choose a terminal" aria-label="Choose a terminal">⌁</button><button type="button" id="create" class="primary" title="Create task" aria-label="Create task">＋</button><button type="button" id="edit" class="primary" title="Open tasks.json" aria-label="Open tasks.json">✎</button></div>
   </div>
   <div class="board-tools" role="group" aria-label="Task board controls">
     <input id="search" class="search" type="search" placeholder="Search tasks, sources, groups…" aria-label="Search tasks, sources, groups">

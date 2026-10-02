@@ -148,6 +148,22 @@ async function run() {
   assert.equal(editor.document.uri.fsPath, path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, '.vscode', 'tasks.json'));
 
   const task = await waitForTask(taskLabel);
+
+  // Use the real workspace, document and editor APIs to check card navigation.
+  const navigationBoard = new extensionModule.TaskBoard({
+    workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
+  });
+  navigationBoard.findTask = async () => task;
+  const originalText = editor.document.getText();
+  await navigationBoard.openTasksJson('selected-task');
+  const selectedEditor = vscode.window.activeTextEditor;
+  assert.equal(selectedEditor.document.uri.toString(), editor.document.uri.toString());
+  assert.match(selectedEditor.document.getText(selectedEditor.selection), /Tasks Sidebar integration task/);
+  assert.equal(selectedEditor.document.getText(), originalText, 'Navigation must not rewrite JSONC.');
+  assert.equal(selectedEditor.document.isDirty, false);
+  assert.match(extensionModule.createTaskBoardHtml('test', 'host'), /Choose a terminal to inspect output/);
+  assert.doesNotMatch(extensionModule.createTaskBoardHtml('test', 'host'), /Focus the active task terminal/);
+
   let startSubscription;
   let endSubscription;
   const started = new Promise(resolve => {

@@ -94,7 +94,7 @@ jobs:
           name: compatibility-candidate
 
       - name: Runtime tests
-        run: node --test test/runtime.test.js test/release.test.js
+        run: node --test test/runtime.test.js test/release.test.js test/actions.test.js
 
       - name: VS Code extension-host tests (Linux)
         if: runner.os == 'Linux'
@@ -166,7 +166,7 @@ jobs:
           node scripts/release.js verify --tag "$RELEASE_TAG" --vsix "${vsix_files[0]}"
 
       - name: Runtime tests before starting the compatibility matrix
-        run: node --test test/runtime.test.js test/release.test.js
+        run: node --test test/runtime.test.js test/release.test.js test/actions.test.js
 
       - name: Record tested source commit
         id: source
