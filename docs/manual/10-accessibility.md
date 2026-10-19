@@ -63,8 +63,6 @@ Toolbar buttons and view controls have explicit `aria-label` values.
 Examples:
 
 - Refresh tasks
-- Open VS Code task output
-- Focus the active task terminal
 - Create task
 - Open tasks.json
 - Reset search and filters
