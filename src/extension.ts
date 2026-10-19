@@ -650,7 +650,7 @@ export class TaskBoard {
     const byLabel = folder.workspaceFolderUri ? specs.get(folder.workspaceFolderUri) : undefined;
     return {
       dependency: byLabel?.dependencies[task.name],
-      tags: byLabel?.tags[task.name] ?? []
+      tags: task.source === 'Workspace' ? (byLabel?.tags[task.name] ?? []) : []
     };
   }
 
