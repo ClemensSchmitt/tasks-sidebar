@@ -9,13 +9,14 @@ The search field performs a case-insensitive substring search across:
 - task name;
 - provider/source;
 - group;
-- workspace-folder name.
+- workspace-folder name;
+- tags assigned in tasks.json.
 
 For example, searching `frontend` can match a task whose name does not contain that text if its workspace folder is named `frontend`.
 
 An empty or whitespace-only query matches all tasks.
 
-> Note: the current placeholder/ARIA label says “Search tasks, sources, groups…” even though folder name is also searched. The handbook documents the actual implementation behavior.
+> Note: search also checks workspace-folder names and task tags, even when those values are not part of the task's display name.
 
 ## Filters
 
@@ -58,6 +59,12 @@ The third condition is broader than the label may suggest. A task that has never
 Matches tasks whose source is not `Workspace`.
 
 This filter does not itself enable external-provider discovery. If `tasksSidebar.includeExternalTasks` is false, external tasks generally are not in the board snapshot to filter.
+
+### Tags
+
+The tag dropdown is independent of the status filter and can be combined with search, status filtering and sorting. It lists the distinct tags present on visible task snapshots. Selecting a tag matches tasks case-insensitively. Tags also appear as badges on their task cards.
+
+The list is refreshed with task discovery. If the selected tag is removed from every task, the tag filter resets to **All tags**.
 
 ## Sorting
 
