@@ -1231,7 +1231,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .primary { background: color-mix(in srgb, var(--violet) 16%, transparent); color: var(--violet); }
     .primary:hover { background: color-mix(in srgb, var(--violet) 27%, transparent); }
-    .board-tools { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin: 0 0 10px; }
+    .board-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0 0 10px; }
     .search { min-width: 0; padding: 7px 9px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 72%, transparent); font: inherit; }
     .view-select { min-width: 78px; padding: 5px 6px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); font: inherit; }
     .view-options { display: flex; gap: 5px; grid-column: 1 / -1; }
@@ -1319,7 +1319,6 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
   </div>
   <div class="board-tools" role="group" aria-label="Task board controls">
     <input id="search" class="search" type="search" placeholder="Search tasks, sources, groups…" aria-label="Search tasks, sources, groups">
-    <button id="resetView" type="button" title="Reset search and filters" aria-label="Reset search and filters">×</button>
     <div class="view-options">
       <select id="filter" class="view-select" aria-label="Filter tasks"><option value="all">All tasks</option><option value="running">Running</option><option value="failed">Failed</option><option value="completed">Completed</option><option value="unknown">Unknown / stale</option><option value="external">External providers</option></select>
       <select id="sort" class="view-select" aria-label="Sort tasks"><option value="name">Sort: name</option><option value="status">Sort: status</option><option value="elapsed">Sort: elapsed</option><option value="folder">Sort: folder</option></select>
@@ -1362,16 +1361,6 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     document.getElementById('terminal')?.addEventListener('click', () => vscode.postMessage({ command: 'terminal' }));
     document.getElementById('create')?.addEventListener('click', () => vscode.postMessage({ command: 'create' }));
     document.getElementById('edit')?.addEventListener('click', () => vscode.postMessage({ command: 'edit' }));
-    document.getElementById('resetView')?.addEventListener('click', () => {
-      query = '';
-      selectedFilter = 'all';
-      selectedSort = 'name';
-      if (search) search.value = '';
-      if (filter) filter.value = selectedFilter;
-      if (sort) sort.value = selectedSort;
-      render(allTasks);
-      search?.focus();
-    });
     search?.addEventListener('input', () => { query = search.value; render(allTasks); });
     filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
