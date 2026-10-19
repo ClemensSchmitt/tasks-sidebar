@@ -264,37 +264,6 @@ export class TaskBoard {
     await this.stop(active.executionId);
   }
 
-  async openTaskOutput(id?: string): Promise<void> {
-    // TaskExecution exposes no terminal/output handle in the public VS Code API.
-    await this.openTaskTerminal(id);
-  }
-
-  async openTaskTerminal(_id?: string): Promise<void> {
-    try {
-      const terminals = vscode.window.terminals;
-      if (!terminals.length) {
-        await vscode.window.showInformationMessage('No terminals are available. Run a task first; its output may appear in a terminal.');
-        return;
-      }
-      const selected = await vscode.window.showQuickPick(
-        terminals.map((terminal, index) => ({
-          label: terminal.name,
-          description: `Terminal ${index + 1}${terminal === vscode.window.activeTerminal ? ' · active' : ''}`,
-          terminal
-        })),
-        { placeHolder: 'Choose a terminal to inspect (task association is unavailable)' }
-      );
-      if (!selected) return;
-      if (!vscode.window.terminals.includes(selected.terminal)) {
-        await vscode.window.showWarningMessage('This terminal has closed. Choose another terminal.');
-        return;
-      }
-      selected.terminal.show(false);
-    } catch (error) {
-      this.reportError('The selected terminal could not be opened.', error);
-    }
-  }
-
   async stop(executionId: string): Promise<void> {
     const active = this.running.get(executionId);
     if (active && active.lifecycle === 'running' && !active.stopRequested) {
@@ -1034,8 +1003,6 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
         case 'run': await this.board.run(requiredId()); break;
         case 'stop': await this.board.stop(requiredId()); break;
         case 'restart': await this.board.restart(requiredId()); break;
-        case 'output': await this.board.openTaskOutput(optionalId()); break;
-        case 'terminal': await this.board.openTaskTerminal(optionalId()); break;
         case 'refresh': await this.board.refresh(); break;
         case 'edit': await this.board.openTasksJson(optionalId()); break;
         case 'create': await this.board.createTask(); break;
@@ -1294,7 +1261,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .task-actions { margin-left: auto; display: flex; }
     .run { color: var(--mint); }
     .stop { color: var(--danger); }
-    .output, .terminal, .restart { color: var(--violet); }
+    .restart { color: var(--violet); }
     .high-contrast { border-color: var(--focus); }
     @media (forced-colors: active) {
       body, .task, .empty-card, .search, .view-select { color: CanvasText; border-color: CanvasText; background: Canvas; }
@@ -1315,7 +1282,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
 <body>
   <div class="top">
     <div><div class="eyebrow">Workspace flow</div><h1>Tasks <span class="version">v${safeVersion}</span></h1><span class="host">${safeHost}</span></div>
-    <div class="actions" role="group" aria-label="Task actions"><button type="button" id="refresh" title="Refresh tasks" aria-label="Refresh tasks">↻</button><button type="button" id="output" title="Choose a terminal to inspect output" aria-label="Choose a terminal to inspect output">≋</button><button type="button" id="terminal" title="Choose a terminal" aria-label="Choose a terminal">⌁</button><button type="button" id="create" class="primary" title="Create task" aria-label="Create task">＋</button><button type="button" id="edit" class="primary" title="Open tasks.json" aria-label="Open tasks.json">✎</button></div>
+    <div class="actions" role="group" aria-label="Task actions"><button type="button" id="refresh" title="Refresh tasks" aria-label="Refresh tasks">↻</button><button type="button" id="create" class="primary" title="Create task" aria-label="Create task">＋</button><button type="button" id="edit" class="primary" title="Open tasks.json" aria-label="Open tasks.json">✎</button></div>
   </div>
   <div class="board-tools" role="group" aria-label="Task board controls">
     <input id="search" class="search" type="search" placeholder="Search tasks, sources, groups…" aria-label="Search tasks, sources, groups">
@@ -1358,8 +1325,6 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     });
     const refresh = () => vscode.postMessage({ command: 'refresh' });
     document.getElementById('refresh')?.addEventListener('click', refresh);
-    document.getElementById('output')?.addEventListener('click', () => vscode.postMessage({ command: 'output' }));
-    document.getElementById('terminal')?.addEventListener('click', () => vscode.postMessage({ command: 'terminal' }));
     document.getElementById('create')?.addEventListener('click', () => vscode.postMessage({ command: 'create' }));
     document.getElementById('edit')?.addEventListener('click', () => vscode.postMessage({ command: 'edit' }));
     document.getElementById('resetView')?.addEventListener('click', () => {

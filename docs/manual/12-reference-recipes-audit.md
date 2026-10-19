@@ -22,8 +22,6 @@ This chapter is the compact lookup layer for the Tasks Sidebar handbook. It also
 | Visible action | Scope | What Tasks Sidebar does | Important limit |
 | --- | --- | --- | --- |
 | Refresh | Board | Publishes current discovery/runtime state | Does not change task definitions |
-| Open VS Code task output | Board | Invokes VS Code task-output command | VS Code selects target |
-| Focus active task terminal | Board | Focuses VS Code terminal surface | Not tied to selected card |
 | Create task | Board/empty state | Creates simple shell task | Rewrites JSONC as normalized JSON |
 | Open tasks.json | Board/empty state/card | Opens selected workspace task file | Card edit is file-level, not exact JSON object |
 | Reset | Board view | Clears query/filter and restores name sort | Presentation-only |

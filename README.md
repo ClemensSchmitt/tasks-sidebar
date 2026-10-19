@@ -49,7 +49,6 @@ The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enable
 - Search by task name, provider, group or workspace folder
 - Deterministic filters for running, failed, completed, unknown/stale and external tasks
 - Deterministic sorting by name, status, elapsed time or folder
-- Choose a terminal to inspect its output
 - Edit `tasks.json`, or create a shell task through the board
 - Version, host and provider labels are visible in the sidebar
 - English-only UI with keyboard focus, screen-reader labels and reduced-motion support
@@ -60,7 +59,7 @@ The extension uses the official `vscode.tasks.fetchTasks()` API and does not use
 
 The provider/source is always shown. If two providers expose the same display name, they remain distinct when their source or definition differs. Exact duplicate logical definitions are rendered once; parallel `TaskExecution` instances are still represented separately. This avoids duplicate cards without hiding real parallel runs.
 
-Both terminal toolbar actions explicitly let you choose from available terminals. Task-to-terminal association is unavailable through the public API; a task may have no retained terminal.
+The board does not provide toolbar buttons for task output or terminal focus. Use VS Code's Output and Terminal panels directly; the task API does not expose a task-specific output or terminal handle.
 
 ## Runtime safety
 
@@ -122,18 +121,10 @@ This project is distributed under the [MIT License](LICENSE). See the [changelog
 
 ### Task output, terminals and editing
 
-The toolbar offers **Choose a terminal to inspect output** and **Choose a terminal**.
-Both list all currently available terminals; select the terminal whose output you want
-to inspect. Duplicate terminal names have numbered descriptions and the active terminal
-is marked. Cancelling leaves focus unchanged. Closed terminals and an empty list produce
-a helpful message. Running, completed and parallel tasks all use this explicit selection;
-no last-task or name-based association is inferred.
-
-The [public VS Code API](https://code.visualstudio.com/api/references/vscode-api#TaskExecution)
-exposes a task and termination on TaskExecution, but no terminal or output handle.
-The sidebar therefore does not promise automatic task-terminal targeting, read terminal
-buffers, or invoke the unsupported task-output command. The original reported error
-text was unavailable; this change addresses the verified API limitation.
+The Task Board has no toolbar buttons for task output or terminal focus. Use VS Code's
+Output and Terminal panels directly. The [public VS Code API](https://code.visualstudio.com/api/references/vscode-api#TaskExecution)
+exposes a task and termination on TaskExecution, but no task-specific terminal or output
+handle, so Tasks Sidebar cannot target those surfaces for an individual task.
 
 **Edit** on a workspace task selects its unique definition in that folder's tasks.json,
 including JSONC files. Duplicate labels within one file, missing/renamed definitions,
