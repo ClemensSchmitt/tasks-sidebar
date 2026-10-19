@@ -46,7 +46,7 @@ Neu und noch nicht committed sind:
 - Filter: alle, laufend, fehlgeschlagen, abgeschlossen, unbekannt/stale und externe Tasks.
 - Deterministische Sortierung nach Name, Status, Laufzeit oder Ordner.
 - Öffnen von `tasks.json` und Erstellen eines einfachen Shell-Tasks über die Erweiterung.
-- Öffnen der ausgewählten Task-Ausgabe und Fokussieren des aktiven Task-Terminals über VS-Code-Kommandos.
+- Task-Ausgabe und Terminals werden direkt über die VS-Code-Panels geöffnet; die Erweiterung hat dafür keine Toolbar-Schaltflächen.
 - Anzeige von Version, Host und Provider.
 - Keyboard-Fokus, Screenreader-Labels, ARIA-Fortschrittswerte, Reduced-Motion-Unterstützung und Forced-Colors-Hooks.
 - Letzte gültige Task-Liste bleibt bei vielen Fehlern sichtbar; im Fehlerfall wird eine Retry-Möglichkeit angeboten.
@@ -144,8 +144,7 @@ Die aktuelle lokale Umgebung hatte Node `v22.14.0` und npm `11.1.0`. Die CI-Konf
 - WSL, Dev Containers und Remote SSH sind Best Effort und nicht automatisiert zertifiziert.
 - Manuelle Accessibility-Prüfung mit repräsentativen VS-Code-Themes und echter Assistive Technology steht noch aus; automatisierte Verträge für Fokus, ARIA, Reduced Motion und Forced Colors existieren.
 - Die Oberfläche ist aktuell nur Englisch.
-- VS-Code entscheidet bei Output-/Terminal-Kommandos selbst über das Ziel. Die Erweiterung bietet keine per Karte auswählbare Zuordnung von Child-Terminals bei Compound-Tasks.
-- Ein Process-Task kann ohne fokussierbares Terminal sein.
+- Die Erweiterung bietet keine Output-/Terminal-Schaltflächen, da die VS-Code-API keine task-spezifischen Handles für diese Oberflächen bereitstellt. Nutze die VS-Code-Panels für die Auswahl.
 - Der aktuelle Arbeitsstand ist noch nicht committed und die Paketversion ist noch `0.0.5`, obwohl seit dem letzten Tag umfangreiche Änderungen und Tests hinzugekommen sind.
 
 ## Empfohlene Fortsetzung im Cloud-Projekt
