@@ -4,6 +4,15 @@ Notable user-facing changes are recorded here. Entries under **Unreleased** desc
 
 ## Unreleased
 
+## 0.0.7 — 2026-10-19
+
+- Add optional task tags in `tasks.json`, display tags on cards, and filter or search tasks by tag (PR #77).
+- Show durations only for successful completed runs; failed, cancelled, unknown, stale and recovered attempts do not display attempted durations (PR #76).
+- Remove unreliable task output and terminal toolbar controls; use the VS Code Output and Terminal panels directly (PR #75).
+- Remove the redundant task search clear button and improve editing of the selected task definition in `tasks.json` (PRs #74, #68).
+- Expand the user handbook, troubleshooting guidance, accessibility and remote-host documentation.
+- Improve CI efficiency by sharing one packaged VSIX across the compatibility matrix and retaining gated release verification (PR #66).
+
 ## 0.0.6 — 2026-10-01
 
 - Track task executions by their concrete VS Code execution, including independent controls for parallel runs.
