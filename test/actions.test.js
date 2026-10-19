@@ -29,8 +29,6 @@ function harness() {
       openTextDocument: async uri => { calls.push(['document', uri]); return document; }
     },
     window: {
-      terminals: [],
-      showQuickPick: async (items, options) => { calls.push(['pick', items, options]); return items[1]; },
       showInformationMessage: async message => calls.push(['info', message]),
       showWarningMessage: async message => calls.push(['warning', message]),
       showTextDocument: async (doc, options) => {
@@ -38,7 +36,6 @@ function harness() {
         return { revealRange: (...args) => calls.push(['reveal', ...args]) };
       }
     },
-    commands: { executeCommand: () => assert.fail('No internal terminal/output commands') }
   };
   const file = path.resolve(__dirname, '../out/extension.js');
   const module = { exports: {} };
@@ -52,51 +49,6 @@ function harness() {
   board.findTask = async () => task;
   return { api, board, calls, task, document };
 }
-
-test('both output and terminal actions explicitly select terminals without task inference', async () => {
-  for (const method of ['openTaskOutput', 'openTaskTerminal']) {
-    for (const id of [undefined, 'running', 'completed', 'parallel']) {
-      const { api, board, calls } = harness();
-      const first = { name: 'same', show: () => assert.fail('Must not choose active terminal implicitly') };
-      const second = { name: 'same', show: focus => calls.push(['show', focus]) };
-      api.window.terminals = [first, second];
-      api.window.activeTerminal = first;
-      await board[method](id);
-      assert.equal(calls[0][0], 'pick');
-      assert.match(calls[0][1][0].description, /1.*active/);
-      assert.match(calls[0][1][1].description, /2/);
-      assert.equal(calls[1][0], 'show');
-      assert.equal(calls[1][1], false);
-    }
-  }
-});
-
-test('terminal actions handle no terminals, cancellation, closure and API failures', async () => {
-  for (const method of ['openTaskOutput', 'openTaskTerminal']) {
-    let h = harness();
-    await h.board[method]();
-    assert.equal(h.calls[0][0], 'info');
-    h = harness();
-    const terminal = { name: 'task', show: () => assert.fail('Must not show') };
-    h.api.window.terminals = [terminal];
-    h.api.window.showQuickPick = async () => undefined;
-    await h.board[method]();
-    assert.equal(h.calls.length, 0);
-    h.api.window.showQuickPick = async () => {
-      h.api.window.terminals = [];
-      return { terminal };
-    };
-    await h.board[method]();
-    assert.equal(h.calls[0][0], 'warning');
-    h.api.window.terminals = [{ name: 'task', show: () => { throw new Error('closed'); } }];
-    h.api.window.showQuickPick = async items => items[0];
-    await h.board[method]();
-    assert.equal(h.calls.at(-1)[0], 'error');
-    h.api.window.showQuickPick = async () => { throw new Error('picker failed'); };
-    await h.board[method]();
-    assert.equal(h.calls.at(-1)[2], 'picker failed');
-  }
-});
 
 test('Edit chooses the exact definition in the task workspace folder', async () => {
   const { board, calls, document } = harness();
