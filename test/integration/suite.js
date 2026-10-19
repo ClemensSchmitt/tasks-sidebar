@@ -118,8 +118,14 @@ function createEmbeddedWebviewHarness(html) {
 
   return {
     list: element('list'),
+    tagFilter: element('tagFilter'),
     warningRegion: element('warning'),
     postedMessages,
+    selectTag(value) {
+      const select = element('tagFilter');
+      select.value = value;
+      select.listeners.get('change')?.();
+    },
     send(data) {
       const listener = listeners.get('message');
       assert.ok(listener, 'The webview must register a window message listener.');
@@ -195,7 +201,7 @@ async function run() {
   assert.match(html, /forced-colors: active/);
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /aria-live="off"/);
-  assert.match(html, /aria-label="Search tasks, sources, groups/);
+  assert.match(html, /aria-label="Search tasks, tags, sources, groups/);
   assert.match(html, /aria-valuetext/);
   assert.match(html, /v0\.0\.5/);
   assert.match(html, /<html lang="en">/);
@@ -251,7 +257,7 @@ async function run() {
 
   for (const control of [
     'id="refresh"', 'id="output"', 'id="terminal"', 'id="create"', 'id="edit"',
-    'id="search"', 'id="filter"', 'id="sort"'
+    'id="search"', 'id="filter"', 'id="tagFilter"', 'id="sort"'
   ]) assert.ok(webviewHarness.html.includes(control), 'Missing sidebar UI control ' + control + '.');
   assert.match(webviewHarness.html, /<input id="search" class="search" type="search"/);
   assert.match(webviewHarness.html, /\.board-tools \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/);
@@ -261,6 +267,7 @@ async function run() {
   }
   assert.match(webviewHarness.html, /search\?\.addEventListener\('input'/);
   assert.match(webviewHarness.html, /filter\?\.addEventListener\('change'/);
+  assert.match(webviewHarness.html, /tagFilter\?\.addEventListener\('change'/);
   assert.match(webviewHarness.html, /sort\?\.addEventListener\('change'/);
 
   for (const route of routeCases) {
@@ -284,6 +291,7 @@ async function run() {
     name: 'Validated task',
     source: 'Workspace',
     group: 'build',
+    tags: ['test & smoke'],
     dependsOn: [],
     dependsOrder: 'all',
     dependencyIds: [],
@@ -299,13 +307,21 @@ async function run() {
     elapsedBasis: 'measured',
     runCount: 0
   };
+  const untaggedTaskSnapshot = { ...taskSnapshot, id: 'untagged-task', name: 'Untagged task', tags: [] };
   embeddedWebview.send({
     command: 'render',
-    snapshots: [taskSnapshot],
+    snapshots: [taskSnapshot, untaggedTaskSnapshot],
     warning: 'Some task providers could not be scanned.'
   });
-  const renderedTaskHtml = embeddedWebview.list.innerHTML;
+  let renderedTaskHtml = embeddedWebview.list.innerHTML;
   assert.match(renderedTaskHtml, /Validated task/, 'A valid render message should display the task.');
+  assert.match(renderedTaskHtml, /test &amp; smoke/, 'Task tags should be rendered as escaped labels.');
+  assert.match(renderedTaskHtml, /Untagged task/, 'Tasks without tags remain visible before filtering.');
+  assert.match(embeddedWebview.tagFilter.innerHTML, /value="test &amp; smoke"/, 'Tag choices should be populated from task snapshots.');
+  embeddedWebview.selectTag('test & smoke');
+  assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Selecting a tag keeps matching tasks visible.');
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/, 'Selecting a tag hides tasks without that tag.');
+  renderedTaskHtml = embeddedWebview.list.innerHTML;
   assert.equal(
     embeddedWebview.warningRegion.children[0]?.dataset.message,
     'Some task providers could not be scanned.',
@@ -325,6 +341,7 @@ async function run() {
     { command: 'render', snapshots: [{ ...taskSnapshot, id: '' }] },
     { command: 'render', snapshots: [{ ...taskSnapshot, id: '   ' }] },
     { command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, dependsOn: [null] }] },
+    { command: 'render', snapshots: [{ ...taskSnapshot, tags: [null] }] },
     { command: 'refresh', snapshots: [], warning: 'Must be ignored' }
   ]) {
     assert.doesNotThrow(() => embeddedWebview.send(malformedMessage));
