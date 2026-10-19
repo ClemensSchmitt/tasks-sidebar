@@ -77,7 +77,7 @@ Both terminal toolbar actions explicitly let you choose from available terminals
 ## History, timing and progress
 
 - Elapsed time is monotonic host elapsed time. Suspend/resume time is intentionally counted as elapsed wall time; active CPU time is not claimed. Persisted wall-clock timestamps are metadata only.
-- The plan uses the latest successful measured duration. Failed, cancelled, unknown, stale and recovered runs remain visible but do not change the plan.
+- The plan uses the latest successful measured duration. Failed, cancelled, unknown, stale and recovered runs remain visible but do not change the plan or display their attempted duration.
 - Up to 20 duration samples and 200 history records are retained.
 - Runtime uses a monotonic clock. Clock changes cannot create negative durations or make progress move backwards.
 - Reduced-motion preference disables non-essential animation and transitions; the progress state remains available as text and ARIA values.
