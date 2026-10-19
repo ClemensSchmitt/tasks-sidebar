@@ -38,10 +38,10 @@ At the top of the board you will see:
 - **Version badge** — the loaded extension package version, for example `v0.0.6`.
 - **Host label** — either `Local extension host` or `Remote · <name>`.
 - **Refresh** — re-runs task discovery.
-- **Open VS Code task output** — delegates to VS Code's task output command.
-- **Focus the active task terminal** — delegates terminal focus to VS Code.
 - **Create task** — creates a simple workspace shell task.
 - **Open tasks.json** — opens the selected workspace folder's task file.
+
+Task output and terminals are accessed from VS Code's Output and Terminal panels; the Task Board has no buttons for these surfaces.
 
 Below the header:
 
@@ -169,12 +169,11 @@ VS Code owns:
 - task provider implementation;
 - compound-task orchestration;
 - process/task events exposed to the extension;
-- the output target selected by **Open VS Code task output**;
-- the terminal that is active when **Focus the active task terminal** runs;
+- output and terminal selection through VS Code's own panels;
 - workspace/remote file systems beneath `vscode.workspace.fs`;
 - remote extension-host connectivity.
 
-For example, Tasks Sidebar does not guess which child terminal belongs to a compound task and cannot promise that focusing the terminal will select a particular card's terminal.
+The Task Board does not expose output or terminal controls because VS Code does not provide task-specific handles for those surfaces.
 
 ## Disable or uninstall
 
