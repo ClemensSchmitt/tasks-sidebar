@@ -4,7 +4,6 @@ import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, cal
 type TaskLifecycle = TaskExecutionLifecycle;
 type TaskHistory = {
   lastDurationMs?: number;
-  lastRunDurationMs?: number;
   lastCompletedAt?: number;
   lastUpdatedAt?: number;
   lastOutcome?: TaskOutcome;
@@ -82,7 +81,6 @@ type TaskSnapshot = {
   overtimeMs?: number;
   isStopping: boolean;
   lastOutcome?: TaskOutcome;
-  lastRunDurationMs?: number;
   lastExitCode?: number;
   executionId?: string;
   lifecycle: TaskLifecycle | 'idle';
@@ -591,7 +589,6 @@ export class TaskBoard {
       const record = previous ?? { runCount: 0, durationsMs: [] };
       record.lastOutcome = 'unknown';
       record.lastExitCode = undefined;
-      record.lastRunDurationMs = ageMs;
       record.lastUpdatedAt = Date.now();
       this.history[historyId] = record;
       if (selectedHistoryKey && selectedHistoryKey !== historyId) delete this.history[selectedHistoryKey];
@@ -767,7 +764,6 @@ export class TaskBoard {
     record.lastOutcome = outcome;
     record.lastExitCode = active.exitCode;
     record.lastUpdatedAt = Date.now();
-    record.lastRunDurationMs = durationMs;
     if (shouldCountSuccessfulRun(outcome, active.recovered)) {
       record.lastDurationMs = durationMs;
       record.lastCompletedAt = Date.now();
@@ -1096,7 +1092,6 @@ function toSnapshot(
     overtimeMs: isRunning && plannedMs && elapsedMs > plannedMs ? elapsedMs - plannedMs : undefined,
     isStopping: active?.lifecycle === 'stopping',
     lastOutcome,
-    lastRunDurationMs: record.lastRunDurationMs,
     lastExitCode: record.lastExitCode,
     executionId: active?.executionId,
     lifecycle: active?.lifecycle ?? 'idle',
@@ -1377,7 +1372,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
     function isTaskSnapshot(snapshot) {
       const optionalStringKeys = ['workspaceFolderUri', 'workspaceFolderName', 'dependencyState', 'dependencyFailure', 'executionId', 'lastOutcome'];
-      const optionalNumberKeys = ['plannedMs', 'lastDurationMs', 'overtimeMs', 'lastRunDurationMs', 'lastExitCode'];
+      const optionalNumberKeys = ['plannedMs', 'lastDurationMs', 'overtimeMs', 'lastExitCode'];
       return Boolean(snapshot) &&
         typeof snapshot === 'object' &&
         !Array.isArray(snapshot) &&
@@ -1438,10 +1433,10 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       if (task.lifecycle === 'stale') return 'Stale · execution is no longer observable';
       if (task.isRunning) return (task.isBackground ? 'Watch · ' : '') + format(task.elapsedMs) + (task.elapsedBasis === 'since-reload' ? ' · since reload' : '') + (task.overtimeMs ? ' · ' + format(task.overtimeMs) + ' over plan' : '');
       if (task.lastOutcome === 'failed') return 'Failed' + (task.lastExitCode !== undefined ? ' · exit code ' + task.lastExitCode : '');
-      if (task.lastOutcome === 'cancelled') return 'Cancelled' + (task.lastRunDurationMs ? ' after ' + format(task.lastRunDurationMs) : '');
+      if (task.lastOutcome === 'cancelled') return 'Cancelled';
       if (task.lastOutcome === 'unknown') return 'Unknown outcome';
       if (task.lastOutcome === 'stale') return 'Stale · no end event';
-      return task.lastDurationMs ? 'Last run ' + format(task.lastDurationMs) : 'No run history yet';
+      return task.lastDurationMs ? 'Last successful run ' + format(task.lastDurationMs) : 'No run history yet';
     }
     function statusText(task) {
       const dependencyNote = dependencyLabel(task);
@@ -1601,7 +1596,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
           task.isBackground, task.isDependency, task.dependsOn, task.dependsOrder, task.dependencyIds,
           task.dependencyState, task.dependencyFailure, task.isRunning, task.isStopping, task.lifecycle,
           task.orphaned, task.progressState, task.plannedMs, task.lastDurationMs, task.runCount,
-          task.lastOutcome, task.lastRunDurationMs, task.lastExitCode, Boolean(task.overtimeMs), task.elapsedBasis
+          task.lastOutcome, task.lastExitCode, Boolean(task.overtimeMs), task.elapsedBasis
         ])
       ]);
       if (renderSignature === lastRenderSignature) {
@@ -1655,7 +1650,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const previous = announcedStates.get(key);
         if (receivedInitialSnapshot && previous !== state) {
           const label = task.isRunning ? task.isStopping ? 'Stopping' : task.lifecycle === 'awaiting-task-end' ? 'Finishing' : 'Running' : task.lastOutcome === 'success' ? 'Completed successfully' : task.lastOutcome === 'failed' ? 'Failed' : task.lastOutcome === 'cancelled' ? 'Cancelled' : task.lastOutcome === 'stale' ? 'No longer observable' : task.lastOutcome === 'unknown' ? 'Outcome unknown' : 'Ready';
-          const duration = task.isRunning ? format(task.elapsedMs) + ' elapsed.' : task.lastRunDurationMs ? 'Last run ' + format(task.lastRunDurationMs) + '.' : '';
+          const duration = task.isRunning ? format(task.elapsedMs) + ' elapsed.' : task.lastOutcome === 'success' && task.lastDurationMs ? 'Last successful run ' + format(task.lastDurationMs) + '.' : '';
           messages.push(task.name + ', ' + task.source + ': ' + label + '. ' + duration);
         }
         nextStates.set(key, state);
