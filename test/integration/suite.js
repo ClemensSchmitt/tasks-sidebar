@@ -251,8 +251,11 @@ async function run() {
 
   for (const control of [
     'id="refresh"', 'id="output"', 'id="terminal"', 'id="create"', 'id="edit"',
-    'id="search"', 'id="filter"', 'id="sort"', 'id="resetView"'
+    'id="search"', 'id="filter"', 'id="sort"'
   ]) assert.ok(webviewHarness.html.includes(control), 'Missing sidebar UI control ' + control + '.');
+  assert.match(webviewHarness.html, /<input id="search" class="search" type="search"/);
+  assert.match(webviewHarness.html, /\.board-tools \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/);
+  assert.doesNotMatch(webviewHarness.html, /resetView|Reset search and filters/);
   for (const action of ['run', 'stop', 'restart', 'edit']) {
     assert.ok(webviewHarness.html.includes('data-action="' + action + '"'), 'Missing task-card action ' + action + '.');
   }
