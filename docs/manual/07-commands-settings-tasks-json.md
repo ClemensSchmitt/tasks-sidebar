@@ -308,6 +308,23 @@ The message is intentionally broad; a structurally invalid `tasks` field can als
 
 See [Compound tasks and dependencies](04-compound-tasks-dependencies.md).
 
+## Tasks Sidebar tags
+
+Add an optional string array to a workspace task definition:
+
+```json
+{
+  "label": "Run smoke tests",
+  "type": "shell",
+  "command": "npm test",
+  "tags": ["verification", "smoke"]
+}
+```
+
+Tags are trimmed, duplicate values are ignored case-insensitively, and matching is case-insensitive. A task can have multiple tags. The board shows tag badges, offers a separate tag filter, and includes tags in search. The tag filter can be combined with the existing status filter.
+
+The `tags` property is Tasks Sidebar metadata read directly from `.vscode/tasks.json`; it does not change task execution. VS Code's built-in task JSON schema does not currently include this custom property and may mark it as unknown in the editor. Tasks Sidebar ignores that one schema diagnostic in its own task-file warning so the tag feature does not report its own metadata as a task-file error.
+
 ## Standard VS Code task ownership
 
 Tasks Sidebar does not define a replacement task schema.

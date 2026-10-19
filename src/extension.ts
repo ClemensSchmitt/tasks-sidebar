@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, observationKey, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
+import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, observationKey, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
 
 type TaskLifecycle = TaskExecutionLifecycle;
 type TaskHistory = {
@@ -50,6 +50,7 @@ type TaskMetadata = {
   name: string;
   source: string;
   group: string;
+  tags: string[];
   isBackground: boolean;
   workspaceFolderUri?: string;
   workspaceFolderName?: string;
@@ -58,11 +59,17 @@ type TaskMetadata = {
   dependencyIds: string[];
 };
 
+type WorkspaceTaskSpecs = {
+  dependencies: Record<string, TaskDependencySpec>;
+  tags: Record<string, string[]>;
+};
+
 type TaskSnapshot = {
   id: string;
   name: string;
   source: string;
   group: string;
+  tags?: string[];
   isBackground: boolean;
   workspaceFolderUri?: string;
   workspaceFolderName?: string;
@@ -617,14 +624,17 @@ export class TaskBoard {
     return executionId ? this.running.get(executionId) : undefined;
   }
 
-  private async loadDependencySpecs(): Promise<Map<string, Record<string, TaskDependencySpec>>> {
-    const specs = new Map<string, Record<string, TaskDependencySpec>>();
+  private async loadWorkspaceTaskSpecs(): Promise<Map<string, WorkspaceTaskSpecs>> {
+    const specs = new Map<string, WorkspaceTaskSpecs>();
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
       const uri = vscode.Uri.joinPath(folder.uri, '.vscode', 'tasks.json');
       try {
         const contents = await vscode.workspace.fs.readFile(uri);
         const parsed = parseJsonc(Buffer.from(contents).toString('utf8')) as unknown;
-        specs.set(folder.uri.toString(), parseTaskDependencySpecs(parsed));
+        specs.set(folder.uri.toString(), {
+          dependencies: parseTaskDependencySpecs(parsed),
+          tags: parseTaskTags(parsed)
+        });
       } catch {
         // Discovery and JSON diagnostics are handled independently; one bad root must not hide others.
       }
@@ -632,14 +642,16 @@ export class TaskBoard {
     return specs;
   }
 
-  private dependencySpecForTask(
+  private workspaceTaskSpecForTask(
     task: vscode.Task,
-    specs: Map<string, Record<string, TaskDependencySpec>>
-  ): TaskDependencySpec | undefined {
+    specs: Map<string, WorkspaceTaskSpecs>
+  ): { dependency?: TaskDependencySpec; tags: string[] } {
     const folder = taskWorkspaceFolder(task);
     const byLabel = folder.workspaceFolderUri ? specs.get(folder.workspaceFolderUri) : undefined;
-    if (!byLabel) return undefined;
-    return byLabel[task.name];
+    return {
+      dependency: byLabel?.dependencies[task.name],
+      tags: byLabel?.tags[task.name] ?? []
+    };
   }
 
   private isActiveInCurrentWorkspace(active: ActiveTask, includeExternalTasks: boolean): boolean {
@@ -819,7 +831,10 @@ export class TaskBoard {
       } catch {
         return `${hostLabel()} · ${folder.name}: Could not read tasks.json. Check the file permissions.`;
       }
-      const diagnostics = vscode.languages.getDiagnostics(uri).filter(item => item.severity === vscode.DiagnosticSeverity.Error);
+      const diagnostics = vscode.languages.getDiagnostics(uri).filter(item =>
+        item.severity === vscode.DiagnosticSeverity.Error &&
+        !/property\s+["']?tags["']?\s+is not allowed/i.test(item.message)
+      );
       if (diagnostics.length) return `${hostLabel()} · ${folder.name}: tasks.json has ${diagnostics.length} errors. Fix the JSON syntax and retry.`;
     }
     return undefined;
@@ -859,7 +874,7 @@ export class TaskBoard {
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       this.reconcileRunningExecutions();
       this.reconcilePersistedObservations();
-      const dependencySpecs = await this.loadDependencySpecs();
+      const workspaceTaskSpecs = await this.loadWorkspaceTaskSpecs();
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       const currentFolderUris = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString());
       const visibleTasks = tasks
@@ -871,7 +886,8 @@ export class TaskBoard {
       const representedExecutionIds = new Set<string>();
       const seenLogicalIds = new Set<string>();
       for (const task of visibleTasks) {
-        const metadata = toMetadata(task, this.dependencySpecForTask(task, dependencySpecs));
+        const taskSpec = this.workspaceTaskSpecForTask(task, workspaceTaskSpecs);
+        const metadata = toMetadata(task, taskSpec.dependency, taskSpec.tags);
         if (seenLogicalIds.has(metadata.logicalId)) continue;
         seenLogicalIds.add(metadata.logicalId);
         metadataItems.push({ task, metadata });
@@ -909,6 +925,7 @@ export class TaskBoard {
             name: active.name,
             source: active.source,
             group: active.group,
+            tags: [],
             isBackground: active.isBackground,
             workspaceFolderUri: active.workspaceFolderUri,
             workspaceFolderName: active.workspaceFolderName,
@@ -1079,6 +1096,7 @@ function toSnapshot(
     name: active?.name ?? metadata.name,
     source: active?.source ?? metadata.source,
     group: active?.group ?? metadata.group,
+    tags: metadata.tags,
     isBackground: active?.isBackground ?? metadata.isBackground,
     workspaceFolderUri: active?.workspaceFolderUri ?? metadata.workspaceFolderUri,
     workspaceFolderName: active?.workspaceFolderName ?? metadata.workspaceFolderName,
@@ -1105,7 +1123,7 @@ function toSnapshot(
   };
 }
 
-function toMetadata(task: vscode.Task, dependencySpec?: TaskDependencySpec): TaskMetadata {
+function toMetadata(task: vscode.Task, dependencySpec?: TaskDependencySpec, tags: string[] = []): TaskMetadata {
   const source = task.source || 'Workspace';
   const folder = taskWorkspaceFolder(task);
   const scope = folder.workspaceFolderUri ?? String(task.scope ?? 'global');
@@ -1117,6 +1135,7 @@ function toMetadata(task: vscode.Task, dependencySpec?: TaskDependencySpec): Tas
     name: task.name,
     source,
     group: taskGroupLabel(task),
+    tags,
     isBackground: task.isBackground,
     workspaceFolderUri: folder.workspaceFolderUri,
     workspaceFolderName: folder.workspaceFolderName,
@@ -1234,8 +1253,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .board-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0 0 10px; }
     .search { min-width: 0; padding: 7px 9px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 72%, transparent); font: inherit; }
     .view-select { min-width: 78px; padding: 5px 6px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); font: inherit; }
-    .view-options { display: flex; gap: 5px; grid-column: 1 / -1; }
-    .view-options .view-select { flex: 1; }
+    .view-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; grid-column: 1 / -1; }
+    .view-options .view-select { min-width: 0; }
+    .view-options #sort { grid-column: 1 / -1; }
     .filtered-empty { padding: 18px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); text-align: center; }
     .empty { padding: 8px 0 4px; color: var(--muted); line-height: 1.55; }
     .empty-state { position: relative; isolation: isolate; min-height: 230px; padding: 8px 0 18px; }
@@ -1284,6 +1304,8 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .running .glyph { color: var(--mint); background: color-mix(in srgb, var(--mint) 13%, transparent); animation: pulse 1.8s ease-in-out infinite; }
     .name { min-width: 0; margin: 0; font: inherit; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .sub { color: var(--muted); font-size: 10px; margin: 4px 0 8px 29px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tags { display: flex; flex-wrap: wrap; gap: 4px; margin: -2px 0 8px 29px; }
+    .tag { padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--mint) 25%, var(--line)); border-radius: 999px; color: var(--mint); background: color-mix(in srgb, var(--mint) 8%, transparent); font-size: 9px; line-height: 1.35; }
     .bar { position: relative; height: 6px; background: color-mix(in srgb, var(--muted) 13%, transparent); border: 1px solid color-mix(in srgb, var(--muted) 10%, transparent); border-radius: 20px; overflow: hidden; box-shadow: inset 0 1px 1px color-mix(in srgb, var(--surface) 42%, transparent); }
     .fill { position: relative; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--violet), var(--mint)); transition: width .9s cubic-bezier(.22,1,.36,1); will-change: width; }
     .running .fill.indeterminate { width: 100% !important; background: linear-gradient(90deg, color-mix(in srgb, var(--violet) 22%, transparent), color-mix(in srgb, var(--mint) 30%, transparent)); transition: none; }
@@ -1297,7 +1319,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .output, .terminal, .restart { color: var(--violet); }
     .high-contrast { border-color: var(--focus); }
     @media (forced-colors: active) {
-      body, .task, .empty-card, .search, .view-select { color: CanvasText; border-color: CanvasText; background: Canvas; }
+      body, .task, .empty-card, .search, .view-select, .tag { color: CanvasText; border-color: CanvasText; background: Canvas; }
       button, input, select, .meta, .sub, .host, .empty-hint { color: CanvasText; }
       button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid Highlight; }
       .fill { background: Highlight; }
@@ -1318,9 +1340,10 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     <div class="actions" role="group" aria-label="Task actions"><button type="button" id="refresh" title="Refresh tasks" aria-label="Refresh tasks">↻</button><button type="button" id="output" title="Choose a terminal to inspect output" aria-label="Choose a terminal to inspect output">≋</button><button type="button" id="terminal" title="Choose a terminal" aria-label="Choose a terminal">⌁</button><button type="button" id="create" class="primary" title="Create task" aria-label="Create task">＋</button><button type="button" id="edit" class="primary" title="Open tasks.json" aria-label="Open tasks.json">✎</button></div>
   </div>
   <div class="board-tools" role="group" aria-label="Task board controls">
-    <input id="search" class="search" type="search" placeholder="Search tasks, sources, groups…" aria-label="Search tasks, sources, groups">
+    <input id="search" class="search" type="search" placeholder="Search tasks, tags, sources, groups…" aria-label="Search tasks, tags, sources, groups">
     <div class="view-options">
       <select id="filter" class="view-select" aria-label="Filter tasks"><option value="all">All tasks</option><option value="running">Running</option><option value="failed">Failed</option><option value="completed">Completed</option><option value="unknown">Unknown / stale</option><option value="external">External providers</option></select>
+      <select id="tagFilter" class="view-select" aria-label="Filter tasks by tag"><option value="">All tags</option></select>
       <select id="sort" class="view-select" aria-label="Sort tasks"><option value="name">Sort: name</option><option value="status">Sort: status</option><option value="elapsed">Sort: elapsed</option><option value="folder">Sort: folder</option></select>
     </div>
   </div>
@@ -1332,6 +1355,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     const list = document.getElementById('list');
     const search = document.getElementById('search');
     const filter = document.getElementById('filter');
+    const tagFilter = document.getElementById('tagFilter');
     const sort = document.getElementById('sort');
     const announcer = document.getElementById('announcer');
     const warningRegion = document.getElementById('warning');
@@ -1339,7 +1363,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     let allTasks = [];
     let query = '';
     let selectedFilter = 'all';
+    let selectedTag = '';
     let selectedSort = 'name';
+    let tagOptionsSignature = '';
     let progressFrame = 0;
     let progressOffset = -170;
     let progressLastTime = 0;
@@ -1363,6 +1389,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     document.getElementById('edit')?.addEventListener('click', () => vscode.postMessage({ command: 'edit' }));
     search?.addEventListener('input', () => { query = search.value; render(allTasks); });
     filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
+    tagFilter?.addEventListener('change', () => { selectedTag = tagFilter.value; render(allTasks); });
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
     function isTaskSnapshot(snapshot) {
       const optionalStringKeys = ['workspaceFolderUri', 'workspaceFolderName', 'dependencyState', 'dependencyFailure', 'executionId', 'lastOutcome'];
@@ -1375,6 +1402,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         typeof snapshot.name === 'string' &&
         typeof snapshot.source === 'string' &&
         typeof snapshot.group === 'string' &&
+        (snapshot.tags === undefined || (Array.isArray(snapshot.tags) && snapshot.tags.every(value => typeof value === 'string'))) &&
         Array.isArray(snapshot.dependsOn) &&
         snapshot.dependsOn.every(value => typeof value === 'string') &&
         typeof snapshot.dependsOrder === 'string' &&
@@ -1451,7 +1479,13 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       return actions.length ? actions.join(', ') : 'No actions available';
     }
     function accessibleTaskLabel(task, status, planned) {
-      return [task.name, task.source, task.group, task.workspaceFolderName, status, planned, 'Available actions: ' + availableActionsText(task)].filter(Boolean).join('. ');
+      const tags = Array.isArray(task.tags) ? task.tags : [];
+      return [task.name, task.source, task.group, task.workspaceFolderName, tags.length ? 'Tags: ' + tags.join(', ') : '', status, planned, 'Available actions: ' + availableActionsText(task)].filter(Boolean).join('. ');
+    }
+    function taskTagsMarkup(task) {
+      const tags = Array.isArray(task.tags) ? task.tags.filter(tag => typeof tag === 'string' && tag.trim()) : [];
+      if (!tags.length) return '';
+      return '<div class="tags" aria-label="Task tags">' + tags.map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + '</div>';
     }
     function updateTaskCards(tasks, renderTime) {
       const cards = Array.from(list.querySelectorAll('article[data-task-id]'));
@@ -1534,6 +1568,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     function render(tasks) {
       const focusBookmark = captureListFocus();
       allTasks = tasks;
+      updateTagFilterOptions(tasks);
       announceStateChanges(tasks);
       list.setAttribute('aria-busy', 'false');
       if (!tasks.length) {
@@ -1555,12 +1590,12 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         restoreListFocus(focusBookmark);
         return;
       }
-      const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort);
+      const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort, selectedTag);
       if (!visibleTasks.length) {
-        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedSort]);
+        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedTag, selectedSort]);
         if (lastRenderSignature === emptySignature) return;
         lastRenderSignature = emptySignature;
-        list.innerHTML = '<div class="filtered-empty" role="status"><strong>No matching tasks</strong><br><span>Change the search or filters to see more tasks.</span></div>';
+        list.innerHTML = '<div class="filtered-empty" role="status"><strong>No matching tasks</strong><br><span>Change the search, filters, or tag to see more tasks.</span></div>';
         restoreListFocus(focusBookmark);
         return;
       }
@@ -1584,9 +1619,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         }
       });
       const renderSignature = JSON.stringify([
-        query, selectedFilter, selectedSort,
+        query, selectedFilter, selectedTag, selectedSort,
         ...visibleTasks.map(task => [
-          task.id, task.executionId, task.name, task.source, task.group, task.workspaceFolderName,
+          task.id, task.executionId, task.name, task.source, task.group, task.tags || [], task.workspaceFolderName,
           task.isBackground, task.isDependency, task.dependsOn, task.dependsOrder, task.dependencyIds,
           task.dependencyState, task.dependencyFailure, task.isRunning, task.isStopping, task.lifecycle,
           task.orphaned, task.progressState, task.plannedMs, task.lastDurationMs, task.runCount,
@@ -1618,10 +1653,11 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const dependencyClass = task.dependencyState ? ' dependency-' + task.dependencyState : '';
         const executionLabel = task.executionId ? ' · ' + escapeHtml(task.executionId) : '';
         const accessibleLabel = escapeHtml(accessibleTaskLabel(task, status, planned));
+        const tagsMarkup = taskTagsMarkup(task);
         const progressValue = indeterminate ? '' : ' aria-valuenow="' + Math.round(barWidth) + '"';
         return '<article class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" tabindex="-1" data-task-id="' + escapeHtml(task.id) + '" data-execution-id="' + escapeHtml(task.executionId || '') + '" aria-label="' + accessibleLabel + '">' +
           '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><h2 class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</h2><span class="task-actions">' + action + restartAction + editAction + '</span></div>' +
-          '<div class="sub" title="' + escapeHtml(task.source + ' · ' + task.group + (task.workspaceFolderName ? ' · ' + task.workspaceFolderName : '')) + '">' + escapeHtml(task.source) + ' · ' + escapeHtml(task.group) + (task.workspaceFolderName ? ' · ' + escapeHtml(task.workspaceFolderName) : '') + (task.isDependency ? ' · Child' : task.dependsOn.length ? ' · Depends on ' + escapeHtml(task.dependsOn.join(', ')) + ' (' + escapeHtml(task.dependsOrder) + ')' : '') + executionLabel + (task.orphaned ? ' · Orphaned' : '') + '</div>' +
+          '<div class="sub" title="' + escapeHtml(task.source + ' · ' + task.group + (task.workspaceFolderName ? ' · ' + task.workspaceFolderName : '')) + '">' + escapeHtml(task.source) + ' · ' + escapeHtml(task.group) + (task.workspaceFolderName ? ' · ' + escapeHtml(task.workspaceFolderName) : '') + (task.isDependency ? ' · Child' : task.dependsOn.length ? ' · Depends on ' + escapeHtml(task.dependsOn.join(', ')) + ' (' + escapeHtml(task.dependsOrder) + ')' : '') + executionLabel + (task.orphaned ? ' · Orphaned' : '') + '</div>' + tagsMarkup +
           '<div class="bar" role="progressbar" aria-label="Progress for ' + escapeHtml(task.name) + '" aria-valuemin="0" aria-valuemax="100"' + progressValue + ' aria-valuetext="' + escapeHtml(status) + '"><div class="fill' + (indeterminate ? ' indeterminate' : '') + '" data-progress-id="' + progressId + '" data-planned-ms="' + plannedMs + '" style="width:' + barWidth + '%"></div></div>' +
           '<div class="meta"><span class="' + (task.overtimeMs ? 'late' : '') + '">' + escapeHtml(status) + '</span><span>' + escapeHtml(planned) + '</span></div>' +
           '</article>';
@@ -1689,11 +1725,37 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       }
       progressFrame = requestAnimationFrame(animateProgress);
     }
-    function applyView(tasks, query, filter, sort) {
+    function updateTagFilterOptions(tasks) {
+      if (!tagFilter) return;
+      const tagsByKey = new Map();
+      tasks.forEach(task => {
+        const tags = Array.isArray(task.tags) ? task.tags : [];
+        tags.forEach(tag => {
+          if (typeof tag !== 'string') return;
+          const label = tag.trim();
+          const key = label.toLocaleLowerCase();
+          if (key && !tagsByKey.has(key)) tagsByKey.set(key, label);
+        });
+      });
+      const entries = Array.from(tagsByKey.entries()).sort((left, right) => left[1].localeCompare(right[1]));
+      if (selectedTag && !tagsByKey.has(selectedTag)) selectedTag = '';
+      const signature = JSON.stringify(entries);
+      if (signature !== tagOptionsSignature) {
+        tagFilter.innerHTML = '<option value="">All tags</option>' + entries
+          .map(([value, label]) => '<option value="' + escapeHtml(value) + '">' + escapeHtml(label) + '</option>')
+          .join('');
+        tagOptionsSignature = signature;
+      }
+      if (tagFilter.value !== selectedTag) tagFilter.value = selectedTag;
+    }
+    function applyView(tasks, query, filter, sort, tagFilter) {
       const needle = String(query || '').trim().toLocaleLowerCase();
+      const selectedTag = String(tagFilter || '').trim().toLocaleLowerCase();
       const matches = tasks.filter(task => {
-        const searchable = [task.name, task.source, task.group, task.workspaceFolderName || ''].join(' ').toLocaleLowerCase();
+        const tags = Array.isArray(task.tags) ? task.tags.filter(tag => typeof tag === 'string') : [];
+        const searchable = [task.name, task.source, task.group, task.workspaceFolderName || '', ...tags].join(' ').toLocaleLowerCase();
         if (needle && !searchable.includes(needle)) return false;
+        if (selectedTag && !tags.some(tag => tag.trim().toLocaleLowerCase() === selectedTag)) return false;
         if (filter === 'running' && !task.isRunning) return false;
         if (filter === 'failed' && task.lastOutcome !== 'failed') return false;
         if (filter === 'completed' && task.lastOutcome !== 'success') return false;

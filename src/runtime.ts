@@ -18,6 +18,7 @@ export type TaskBoardViewItem = {
   name: string;
   source: string;
   group: string;
+  tags?: string[];
   workspaceFolderName?: string;
   isRunning: boolean;
   elapsedMs: number;
@@ -216,9 +217,11 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
   tasks: readonly T[],
   query = '',
   filter: TaskBoardFilter = 'all',
-  sort: TaskBoardSort = 'name'
+  sort: TaskBoardSort = 'name',
+  tagFilter = ''
 ): T[] {
   const needle = query.trim().toLocaleLowerCase();
+  const selectedTag = tagFilter.trim().toLocaleLowerCase();
   const matchesFilter = (task: T): boolean => {
     if (filter === 'running') return task.isRunning;
     if (filter === 'failed') return task.lastOutcome === 'failed';
@@ -227,16 +230,20 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
     if (filter === 'external') return task.source !== 'Workspace';
     return true;
   };
+  const matchesTag = (task: T): boolean => {
+    if (!selectedTag) return true;
+    return (task.tags ?? []).some(tag => tag.trim().toLocaleLowerCase() === selectedTag);
+  };
   const matchesQuery = (task: T): boolean => {
     if (!needle) return true;
-    return [task.name, task.source, task.group, task.workspaceFolderName ?? '']
+    return [task.name, task.source, task.group, task.workspaceFolderName ?? '', ...(task.tags ?? [])]
       .join(' ')
       .toLocaleLowerCase()
       .includes(needle);
   };
   const compareText = (left: string, right: string): number => left.localeCompare(right) || 0;
   const statusRank = (task: T): number => task.isRunning ? 0 : task.lastOutcome === 'failed' ? 1 : task.lastOutcome === 'unknown' || task.lastOutcome === 'stale' ? 2 : task.lastOutcome === 'success' ? 3 : 4;
-  const filtered = tasks.filter(task => matchesFilter(task) && matchesQuery(task));
+  const filtered = tasks.filter(task => matchesFilter(task) && matchesTag(task) && matchesQuery(task));
   return filtered.slice().sort((left, right) => {
     let result = 0;
     if (sort === 'status') result = statusRank(left) - statusRank(right);
@@ -357,6 +364,31 @@ export function reconcilePersistedObservations<T extends PersistedTaskObservatio
     else unknown.push(observation);
   }
   return { pending, unknown };
+}
+
+export function parseTaskTags(input: unknown): Record<string, string[]> {
+  if (!input || typeof input !== 'object' || !Array.isArray((input as { tasks?: unknown }).tasks)) return {};
+  const tagsByLabel: Record<string, string[]> = Object.create(null) as Record<string, string[]>;
+  for (const rawTask of (input as { tasks: unknown[] }).tasks) {
+    if (!rawTask || typeof rawTask !== 'object') continue;
+    const task = rawTask as { label?: unknown; taskName?: unknown; tags?: unknown };
+    const label = typeof task.label === 'string' ? task.label : typeof task.taskName === 'string' ? task.taskName : undefined;
+    if (!label || !Array.isArray(task.tags)) continue;
+    const seen = new Set<string>();
+    const tags = task.tags
+      .filter((tag): tag is string => typeof tag === 'string')
+      .map(tag => tag.trim())
+      .filter(tag => {
+        const key = tag.toLocaleLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    if (tags.length) {
+      Object.defineProperty(tagsByLabel, label, { value: tags, enumerable: true, configurable: true, writable: true });
+    }
+  }
+  return tagsByLabel;
 }
 
 export function parseTaskDependencySpecs(input: unknown): Record<string, TaskDependencySpec> {
