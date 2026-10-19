@@ -291,15 +291,13 @@ If behavior changed, history identity changes and a new plan may need to be lear
 
 See [History and progress](06-history-progress-persistence.md).
 
-## Output opens the wrong target / terminal is not the task I expected
+## Find task output or a task terminal
 
-These are VS Code-owned selections.
+The Task Board has no output or terminal toolbar buttons. Open VS Code's Output or
+Terminal panel directly. VS Code owns selection of the displayed output and active
+terminal; Tasks Sidebar cannot map a task card or compound child to a specific surface.
 
-Tasks Sidebar invokes board-level VS Code commands and does not map cards to exact output/terminal targets.
-
-For compound tasks there can be several child terminals.
-
-See [Task output and terminal focus](08-output-terminal.md).
+See [Task output and terminals](08-output-terminal.md).
 
 ## Old/unsupported VS Code
 
