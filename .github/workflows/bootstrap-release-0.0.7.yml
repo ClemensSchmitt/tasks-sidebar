@@ -1,0 +1,41 @@
+# One-shot bootstrap for Tasks Sidebar v0.0.7. Delete after dispatch.
+name: Bootstrap v0.0.7 release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bootstrap-release-0.0.7.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  dispatch:
+    name: Create v0.0.7 tag and dispatch verified release
+    if: github.repository == 'ClemensSchmitt/tasks-sidebar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert release manifests agree
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const p=require("./package.json"); const l=require("./package-lock.json"); if([p.version,l.version,l.packages[""].version].some(v=>v!=="0.0.7")) process.exit(1)'
+      - name: Create tag and dispatch publish workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.0.7" >/dev/null 2>&1; then
+            echo "Tag v0.0.7 already exists; refusing to modify it" >&2
+            exit 1
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/v0.0.7 -f sha="$GITHUB_SHA"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[tag_name]=v0.0.7" \
+            -F "inputs[publish_release]=true"
