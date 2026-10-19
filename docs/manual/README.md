@@ -11,7 +11,7 @@ This handbook is the detailed user guide and reference for Tasks Sidebar. It is 
 5. [Search, filters and sorting](05-search-filter-sort.md)
 6. [Runtime history, progress and persistence](06-history-progress-persistence.md)
 7. [Commands, settings and tasks.json workflows](07-commands-settings-tasks-json.md)
-8. [Task output and terminal focus](08-output-terminal.md)
+8. [Task output and terminals](08-output-terminal.md)
 9. [Troubleshooting and recovery](09-troubleshooting.md)
 10. [Accessibility, keyboard and themes](10-accessibility.md)
 11. [Compatibility, remote hosts and reconnects](11-compatibility-remote.md)
