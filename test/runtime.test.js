@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, filterAndSortTaskSnapshots, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, mergeProgressElapsed, observationKey, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldFinalizeTask, shouldScheduleStaleCheck } = require('../out/runtime.js');
+const { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, filterAndSortTaskSnapshots, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, mergeProgressElapsed, observationKey, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldFinalizeTask, shouldScheduleStaleCheck } = require('../out/runtime.js');
 
 const observation = (overrides = {}) => ({
   stopRequested: false,
@@ -94,8 +94,8 @@ test('duplicate starts are rejected deterministically', () => {
 
 test('task board query, filters and sort use stable tie breakers', () => {
   const tasks = [
-    { id: 'b', name: 'Build', source: 'Workspace', group: 'build', workspaceFolderName: 'api', isRunning: true, elapsedMs: 2000 },
-    { id: 'a', name: 'Build', source: 'npm', group: 'build', workspaceFolderName: 'web', isRunning: false, elapsedMs: 0, lastOutcome: 'success' },
+    { id: 'b', name: 'Build', source: 'Workspace', group: 'build', workspaceFolderName: 'api', tags: ['integration', 'compile'], isRunning: true, elapsedMs: 2000 },
+    { id: 'a', name: 'Build', source: 'npm', group: 'build', workspaceFolderName: 'web', tags: ['smoke'], isRunning: false, elapsedMs: 0, lastOutcome: 'success' },
     { id: 'c', name: 'Lint', source: 'Workspace', group: 'test', workspaceFolderName: 'api', isRunning: false, elapsedMs: 0, lastOutcome: 'failed' }
   ];
   assert.deepEqual(filterAndSortTaskSnapshots(tasks, 'npm', 'all', 'name').map(task => task.id), ['a']);
@@ -103,6 +103,8 @@ test('task board query, filters and sort use stable tie breakers', () => {
   assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'failed', 'name').map(task => task.id), ['c']);
   assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'external', 'name').map(task => task.id), ['a']);
   assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'all', 'status').map(task => task.id), ['b', 'c', 'a']);
+  assert.deepEqual(filterAndSortTaskSnapshots(tasks, '', 'all', 'name', 'SMOKE').map(task => task.id), ['a']);
+  assert.deepEqual(filterAndSortTaskSnapshots(tasks, 'integration', 'all', 'name').map(task => task.id), ['b']);
 });
 
 test('task board search covers provider, group and workspace folder', () => {
@@ -110,6 +112,7 @@ test('task board search covers provider, group and workspace folder', () => {
   assert.equal(filterAndSortTaskSnapshots([task], 'npm', 'all').length, 1);
   assert.equal(filterAndSortTaskSnapshots([task], 'build', 'all').length, 1);
   assert.equal(filterAndSortTaskSnapshots([task], 'frontend', 'all').length, 1);
+  assert.equal(filterAndSortTaskSnapshots([{ ...task, tags: ['release'] }], 'release', 'all').length, 1);
 });
 
 test('background tasks do not get a false stale timeout', () => {
@@ -304,6 +307,22 @@ test('dependency specs normalize labels, lists and execution order', () => {
     build: { label: 'build', dependsOn: ['compile'], dependsOrder: 'sequence' },
     release: { label: 'release', dependsOn: ['build', 'test'], dependsOrder: 'parallel' }
   });
+});
+
+test('task tags normalize from tasks.json labels and ignore invalid entries', () => {
+  const tags = parseTaskTags({
+    tasks: [
+      { label: 'Build', tags: [' compile ', 'smoke', 'COMPILE', '', 42] },
+      { taskName: 'Legacy task', tags: ['legacy'] },
+      { label: 'Invalid tags', tags: 'not-an-array' },
+      { label: 'Empty tags', tags: [' ', null] }
+    ]
+  });
+  assert.deepEqual({ ...tags }, {
+    Build: ['compile', 'smoke'],
+    'Legacy task': ['legacy']
+  });
+  assert.deepEqual(parseTaskTags({ version: '2.0.0' }), {});
 });
 
 test('invalid dependency documents do not produce task definitions', () => {
