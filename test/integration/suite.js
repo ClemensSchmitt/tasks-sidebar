@@ -167,8 +167,11 @@ async function run() {
   assert.match(selectedEditor.document.getText(selectedEditor.selection), /Tasks Sidebar integration task/);
   assert.equal(selectedEditor.document.getText(), originalText, 'Navigation must not rewrite JSONC.');
   assert.equal(selectedEditor.document.isDirty, false);
-  assert.match(extensionModule.createTaskBoardHtml('test', 'host'), /Choose a terminal to inspect output/);
-  assert.doesNotMatch(extensionModule.createTaskBoardHtml('test', 'host'), /Focus the active task terminal/);
+  const toolbarHtml = extensionModule.createTaskBoardHtml('test', 'host');
+  assert.doesNotMatch(toolbarHtml, /id="output"|id="terminal"/);
+  assert.doesNotMatch(toolbarHtml, /Choose a terminal|Open VS Code task output|Focus the active task terminal/);
+  const toolbarActions = toolbarHtml.match(/<div class="actions" role="group" aria-label="Task actions">([\s\S]*?)<\/div>/)?.[1] ?? '';
+  assert.match(toolbarActions, /id="refresh"[\s\S]*id="create"[\s\S]*id="edit"/);
 
   let startSubscription;
   let endSubscription;
@@ -239,8 +242,6 @@ async function run() {
     { command: 'run', id: 'workspace-task', method: 'run', args: ['workspace-task'] },
     { command: 'stop', id: 'execution-1', method: 'stop', args: ['execution-1'] },
     { command: 'restart', id: 'execution-1', method: 'restart', args: ['execution-1'] },
-    { command: 'output', method: 'openTaskOutput', args: [undefined] },
-    { command: 'terminal', method: 'openTaskTerminal', args: [undefined] },
     { command: 'refresh', method: 'refresh', args: [] },
     { command: 'edit', id: 'workspace-task', method: 'openTasksJson', args: ['workspace-task'] },
     { command: 'create', method: 'createTask', args: [] }
@@ -256,7 +257,7 @@ async function run() {
   const webviewHarness = createWebviewHarness(recordingBoard);
 
   for (const control of [
-    'id="refresh"', 'id="output"', 'id="terminal"', 'id="create"', 'id="edit"',
+    'id="refresh"', 'id="create"', 'id="edit"',
     'id="search"', 'id="filter"', 'id="tagFilter"', 'id="sort"'
   ]) assert.ok(webviewHarness.html.includes(control), 'Missing sidebar UI control ' + control + '.');
   assert.match(webviewHarness.html, /<input id="search" class="search" type="search"/);
@@ -383,6 +384,7 @@ async function run() {
     { command: 'stop', id: '' },
     { command: 'restart', id: 1 },
     { command: 'output', id: {} },
+    { command: 'terminal' },
     { command: 'edit', id: null },
     { command: 'unsupported' }
   ]) await failingWebviewHarness.send(malformedMessage);
@@ -392,7 +394,8 @@ async function run() {
     { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
     { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
     { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
-    { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
+    { message: 'The sidebar action could not be completed.', error: 'The sidebar sent an unsupported action.' },
+    { message: 'The sidebar action could not be completed.', error: 'The sidebar sent an unsupported action.' },
     { message: 'The sidebar action could not be completed.', error: 'The selected task is no longer available. Refresh the view and try again.' },
     { message: 'The sidebar action could not be completed.', error: 'The sidebar sent an unsupported action.' }
   ]);
