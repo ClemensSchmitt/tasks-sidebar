@@ -218,10 +218,11 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
   query = '',
   filter: TaskBoardFilter = 'all',
   sort: TaskBoardSort = 'name',
-  tagFilter = ''
+  tagFilter: string | readonly string[] = []
 ): T[] {
   const needle = query.trim().toLocaleLowerCase();
-  const selectedTag = tagFilter.trim().toLocaleLowerCase();
+  const selectedTags = (typeof tagFilter === 'string' ? [tagFilter] : tagFilter)
+    .map(tag => tag.trim().toLocaleLowerCase()).filter(Boolean);
   const matchesFilter = (task: T): boolean => {
     if (filter === 'running') return task.isRunning;
     if (filter === 'failed') return task.lastOutcome === 'failed';
@@ -231,8 +232,8 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
     return true;
   };
   const matchesTag = (task: T): boolean => {
-    if (!selectedTag) return true;
-    return (task.tags ?? []).some(tag => tag.trim().toLocaleLowerCase() === selectedTag);
+    return selectedTags.every(selectedTag =>
+      (task.tags ?? []).some(tag => tag.trim().toLocaleLowerCase() === selectedTag));
   };
   const matchesQuery = (task: T): boolean => {
     if (!needle) return true;

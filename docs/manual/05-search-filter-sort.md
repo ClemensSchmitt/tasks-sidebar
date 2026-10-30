@@ -62,9 +62,11 @@ This filter does not itself enable external-provider discovery. If `tasksSidebar
 
 ### Tags
 
-The tag dropdown is independent of the status filter and can be combined with search, status filtering and sorting. It lists the distinct tags present on visible task snapshots. Selecting a tag matches tasks case-insensitively. Tags also appear as badges on their task cards.
+Open **Tags (all required)** and check one or more tags. Each checkbox can be toggled by mouse or with Space when focused. A task must contain **every** selected tag (AND), matched case-insensitively. Selecting `tag1` and `tag2` shows tasks with both, including tasks with additional tags; tasks with just one or no tags are excluded. With no tags selected, all tasks are eligible. Use **Clear tags** to remove the tag restriction.
 
-The list is refreshed with task discovery. If the selected tag is removed from every task, the tag filter resets to **All tags**.
+The tag filter is independent of the status filter and combines with search and sorting. It lists distinct tags from all discovered task snapshots, regardless of the current search/status/tag filters. Tags also appear as badges on their task cards.
+
+The list is refreshed with task discovery. Selections survive task refreshes while those tags remain available. A tag removed from every task is deselected; other selections remain. If all selected tags disappear, there is no tag restriction. Filter selections reset when the webview is recreated.
 
 ## Sorting
 

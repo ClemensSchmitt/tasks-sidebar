@@ -107,6 +107,26 @@ test('task board query, filters and sort use stable tie breakers', () => {
   assert.deepEqual(filterAndSortTaskSnapshots(tasks, 'integration', 'all', 'name').map(task => task.id), ['b']);
 });
 
+test('multiple selected tags require every tag and compose with search and status', () => {
+  const base = { source: 'Workspace', group: 'test', isRunning: false, elapsedMs: 0 };
+  const tasks = [
+    { ...base, id: 'a', name: 'A', tags: ['tag1', 'tag2'], isRunning: true },
+    { ...base, id: 'b', name: 'B', tags: ['tag1'] },
+    { ...base, id: 'c', name: 'C', tags: ['tag2'] },
+    { ...base, id: 'd', name: 'D', tags: ['tag1', 'tag2', 'tag3'] },
+    { ...base, id: 'e', name: 'E' }
+  ];
+  const ids = (tags, query = '', status = 'all') =>
+    filterAndSortTaskSnapshots(tasks, query, status, 'name', tags).map(task => task.id);
+  assert.deepEqual(ids(['tag1', 'tag2']), ['a', 'd']);
+  assert.deepEqual(ids([' TAG1 ', 'TaG2', 'tag1', '']), ['a', 'd']);
+  assert.deepEqual(ids(['tag1']), ['a', 'b', 'd']);
+  assert.deepEqual(ids([]), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(ids(['missing']), []);
+  assert.deepEqual(ids(['tag1', 'tag2'], 'D'), ['d']);
+  assert.deepEqual(ids(['tag1', 'tag2'], '', 'running'), ['a']);
+});
+
 test('task board search covers provider, group and workspace folder', () => {
   const task = { id: 'x', name: 'Compile', source: 'npm', group: 'build', workspaceFolderName: 'frontend', isRunning: false, elapsedMs: 0 };
   assert.equal(filterAndSortTaskSnapshots([task], 'npm', 'all').length, 1);

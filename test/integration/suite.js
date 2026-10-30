@@ -86,7 +86,16 @@ function createEmbeddedWebviewHarness(html) {
       if (selector === 'button') return new FakeElement('discoveryRetry');
       return null;
     }
-    querySelectorAll() { return []; }
+    querySelectorAll(selector) {
+      if (this.id !== 'tagFilter') return [];
+      if (this.tagMarkup !== this.innerHTML) {
+        this.tagMarkup = this.innerHTML;
+        this.tagInputs = Array.from(this.innerHTML.matchAll(/<input type="checkbox" value="([^"]*)">/g), match => ({
+          value: match[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"'), checked: false
+        }));
+      }
+      return selector === 'input:checked' ? this.tagInputs.filter(input => input.checked) : this.tagInputs;
+    }
     contains() { return false; }
     focus() {}
   }
@@ -123,9 +132,11 @@ function createEmbeddedWebviewHarness(html) {
     postedMessages,
     selectTag(value) {
       const select = element('tagFilter');
-      select.value = value;
+      const values = Array.isArray(value) ? value : [value];
+      select.querySelectorAll('input').forEach(input => { input.checked = values.includes(input.value); });
       select.listeners.get('change')?.();
     },
+    clearTags() { element('clearTags').listeners.get('click')?.(); },
     send(data) {
       const listener = listeners.get('message');
       assert.ok(listener, 'The webview must register a window message listener.');
@@ -322,6 +333,28 @@ async function run() {
   embeddedWebview.selectTag('test & smoke');
   assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Selecting a tag keeps matching tasks visible.');
   assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/, 'Selecting a tag hides tasks without that tag.');
+  const both = { ...taskSnapshot, id: 'both', name: 'Both tags', tags: ['test & smoke', 'second'] };
+  const extra = { ...both, id: 'extra', name: 'Extra tags', tags: [...both.tags, 'third'] };
+  const second = { ...taskSnapshot, id: 'second', name: 'Second only', tags: ['second'] };
+  const tagSnapshots = [taskSnapshot, untaggedTaskSnapshot, both, extra, second];
+  embeddedWebview.send({ command: 'render', snapshots: tagSnapshots, warning: 'Some task providers could not be scanned.' });
+  embeddedWebview.selectTag(['test & smoke', 'second']);
+  assert.match(embeddedWebview.list.innerHTML, /Both tags/);
+  assert.match(embeddedWebview.list.innerHTML, /Extra tags/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Validated task|Untagged task|Second only/);
+  embeddedWebview.send({ command: 'render', snapshots: tagSnapshots });
+  assert.equal(embeddedWebview.tagFilter.querySelectorAll('input:checked').length, 2, 'Refresh retains selected tags.');
+  embeddedWebview.selectTag(['second']);
+  assert.match(embeddedWebview.list.innerHTML, /Second only/);
+  embeddedWebview.clearTags();
+  assert.match(embeddedWebview.list.innerHTML, /Untagged task/);
+  assert.equal(embeddedWebview.tagFilter.querySelectorAll('input:checked').length, 0);
+  embeddedWebview.selectTag(['test & smoke', 'second']);
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, untaggedTaskSnapshot] });
+  assert.match(embeddedWebview.list.innerHTML, /Validated task/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/);
+  assert.equal(embeddedWebview.tagFilter.querySelectorAll('input:checked').length, 1, 'Only vanished tags are deselected.');
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, untaggedTaskSnapshot], warning: 'Some task providers could not be scanned.' });
   renderedTaskHtml = embeddedWebview.list.innerHTML;
   assert.equal(
     embeddedWebview.warningRegion.children[0]?.dataset.message,
