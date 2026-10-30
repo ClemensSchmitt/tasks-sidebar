@@ -1223,6 +1223,12 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .view-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; grid-column: 1 / -1; }
     .view-options .view-select { min-width: 0; }
     .view-options #sort { grid-column: 1 / -1; }
+    .tag-filter { min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; background: var(--surface-raised); }
+    .tag-filter summary { cursor: pointer; overflow-wrap: anywhere; }
+    #tagFilter { display: grid; gap: 5px; max-height: 180px; overflow-y: auto; margin: 7px 0; }
+    #tagFilter label { display: flex; align-items: center; gap: 4px; overflow-wrap: anywhere; }
+    #tagFilter input { flex: none; }
+    .tag-filter summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .filtered-empty { padding: 18px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); text-align: center; }
     .empty { padding: 8px 0 4px; color: var(--muted); line-height: 1.55; }
     .empty-state { position: relative; isolation: isolate; min-height: 230px; padding: 8px 0 18px; }
@@ -1286,7 +1292,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .restart { color: var(--violet); }
     .high-contrast { border-color: var(--focus); }
     @media (forced-colors: active) {
-      body, .task, .empty-card, .search, .view-select, .tag { color: CanvasText; border-color: CanvasText; background: Canvas; }
+      body, .task, .empty-card, .search, .view-select, .tag, .tag-filter { color: CanvasText; border-color: CanvasText; background: Canvas; }
       button, input, select, .meta, .sub, .host, .empty-hint { color: CanvasText; }
       button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid Highlight; }
       .fill { background: Highlight; }
@@ -1310,7 +1316,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     <input id="search" class="search" type="search" placeholder="Search tasks, tags, sources, groups…" aria-label="Search tasks, tags, sources, groups">
     <div class="view-options">
       <select id="filter" class="view-select" aria-label="Filter tasks"><option value="all">All tasks</option><option value="running">Running</option><option value="failed">Failed</option><option value="completed">Completed</option><option value="unknown">Unknown / stale</option><option value="external">External providers</option></select>
-      <select id="tagFilter" class="view-select" aria-label="Filter tasks by tag"><option value="">All tags</option></select>
+      <details class="tag-filter"><summary id="tagSummary">Tags (all required)</summary><div id="tagFilter" role="group" aria-label="Filter tasks by tags (all required)"></div><button id="clearTags" type="button">Clear tags</button></details>
       <select id="sort" class="view-select" aria-label="Sort tasks"><option value="name">Sort: name</option><option value="status">Sort: status</option><option value="elapsed">Sort: elapsed</option><option value="folder">Sort: folder</option></select>
     </div>
   </div>
@@ -1330,7 +1336,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     let allTasks = [];
     let query = '';
     let selectedFilter = 'all';
-    let selectedTag = '';
+    let selectedTags = [];
     let selectedSort = 'name';
     let tagOptionsSignature = '';
     let progressFrame = 0;
@@ -1355,7 +1361,11 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     document.getElementById('edit')?.addEventListener('click', () => vscode.postMessage({ command: 'edit' }));
     search?.addEventListener('input', () => { query = search.value; render(allTasks); });
     filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
-    tagFilter?.addEventListener('change', () => { selectedTag = tagFilter.value; render(allTasks); });
+    tagFilter?.addEventListener('change', () => {
+      selectedTags = Array.from(tagFilter.querySelectorAll('input:checked'), input => input.value);
+      render(allTasks);
+    });
+    document.getElementById('clearTags')?.addEventListener('click', () => { selectedTags = []; render(allTasks); });
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
     function isTaskSnapshot(snapshot) {
       const optionalStringKeys = ['workspaceFolderUri', 'workspaceFolderName', 'dependencyState', 'dependencyFailure', 'executionId', 'lastOutcome'];
@@ -1556,9 +1566,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         restoreListFocus(focusBookmark);
         return;
       }
-      const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort, selectedTag);
+      const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort, selectedTags);
       if (!visibleTasks.length) {
-        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedTag, selectedSort]);
+        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedTags, selectedSort]);
         if (lastRenderSignature === emptySignature) return;
         lastRenderSignature = emptySignature;
         list.innerHTML = '<div class="filtered-empty" role="status"><strong>No matching tasks</strong><br><span>Change the search, filters, or tag to see more tasks.</span></div>';
@@ -1585,7 +1595,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         }
       });
       const renderSignature = JSON.stringify([
-        query, selectedFilter, selectedTag, selectedSort,
+        query, selectedFilter, selectedTags, selectedSort,
         ...visibleTasks.map(task => [
           task.id, task.executionId, task.name, task.source, task.group, task.tags || [], task.workspaceFolderName,
           task.isBackground, task.isDependency, task.dependsOn, task.dependsOrder, task.dependencyIds,
@@ -1704,24 +1714,25 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         });
       });
       const entries = Array.from(tagsByKey.entries()).sort((left, right) => left[1].localeCompare(right[1]));
-      if (selectedTag && !tagsByKey.has(selectedTag)) selectedTag = '';
+      selectedTags = selectedTags.filter(tag => tagsByKey.has(tag));
+      document.getElementById('tagSummary').textContent = 'Tags (all required)' + (selectedTags.length ? ' · ' + selectedTags.length + ' selected' : '');
       const signature = JSON.stringify(entries);
       if (signature !== tagOptionsSignature) {
-        tagFilter.innerHTML = '<option value="">All tags</option>' + entries
-          .map(([value, label]) => '<option value="' + escapeHtml(value) + '">' + escapeHtml(label) + '</option>')
-          .join('');
+        tagFilter.innerHTML = entries.length ? entries
+          .map(([value, label]) => '<label><input type="checkbox" value="' + escapeHtml(value) + '"> ' + escapeHtml(label) + '</label>')
+          .join('') : '<span>No tags available</span>';
         tagOptionsSignature = signature;
       }
-      if (tagFilter.value !== selectedTag) tagFilter.value = selectedTag;
+      tagFilter.querySelectorAll('input').forEach(input => { input.checked = selectedTags.includes(input.value); });
     }
     function applyView(tasks, query, filter, sort, tagFilter) {
       const needle = String(query || '').trim().toLocaleLowerCase();
-      const selectedTag = String(tagFilter || '').trim().toLocaleLowerCase();
+      const selectedTags = tagFilter.map(tag => tag.trim().toLocaleLowerCase()).filter(Boolean);
       const matches = tasks.filter(task => {
         const tags = Array.isArray(task.tags) ? task.tags.filter(tag => typeof tag === 'string') : [];
         const searchable = [task.name, task.source, task.group, task.workspaceFolderName || '', ...tags].join(' ').toLocaleLowerCase();
         if (needle && !searchable.includes(needle)) return false;
-        if (selectedTag && !tags.some(tag => tag.trim().toLocaleLowerCase() === selectedTag)) return false;
+        if (!selectedTags.every(selectedTag => tags.some(tag => tag.trim().toLocaleLowerCase() === selectedTag))) return false;
         if (filter === 'running' && !task.isRunning) return false;
         if (filter === 'failed' && task.lastOutcome !== 'failed') return false;
         if (filter === 'completed' && task.lastOutcome !== 'success') return false;
