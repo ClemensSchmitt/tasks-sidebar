@@ -500,3 +500,13 @@ test('optional regex search supports anchors, alternatives, fields and existing 
   assert.throws(() => ids('(', true), SyntaxError);
   assert.throws(() => ids('x'.repeat(257), true), /too long/);
 });
+
+test('custom order repositions visible tasks without changing hidden slots', () => {
+  const { reorderVisibleTaskIds } = require('../out/runtime.js');
+  assert.deepEqual(reorderVisibleTaskIds(['a', 'hidden', 'b', 'c'], ['a', 'b', 'c'], 'c', 'a'), ['c', 'hidden', 'a', 'b']);
+  assert.deepEqual(reorderVisibleTaskIds(['a', 'hidden', 'b', 'c'], ['a', 'b', 'c'], 'a', 'c', true), ['b', 'hidden', 'c', 'a']);
+  assert.deepEqual(reorderVisibleTaskIds(['a', 'b', 'c'], ['a', 'c'], 'a', 'c', true), ['c', 'b', 'a']);
+  assert.deepEqual(reorderVisibleTaskIds(['a', 'b'], ['a', 'b'], 'a', 'a'), ['a', 'b']);
+  assert.deepEqual(reorderVisibleTaskIds(['a', 'b'], ['a'], 'a', 'b'), ['a', 'b']);
+  assert.deepEqual(reorderVisibleTaskIds(['a', 'a', 'b'], ['a', 'b'], 'b', 'a'), ['b', 'a']);
+});
