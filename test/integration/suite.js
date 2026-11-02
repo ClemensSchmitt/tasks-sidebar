@@ -155,6 +155,40 @@ async function run() {
 
   const task = await waitForTask(taskLabel);
 
+  // Discovery must populate a provider snapshot even if no WebviewView
+  // has been resolved. Opening it later must replay that cached result.
+  const preloadBoard = new extensionModule.TaskBoard({
+    workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
+  });
+  const preloadView = new extensionModule.TaskBoardView(
+    vscode.workspace.workspaceFolders[0].uri, 'test', 'host', preloadBoard
+  );
+  preloadBoard.attachView(preloadView);
+  let preloadFetches = 0;
+  preloadBoard.fetchTasksWithProviderFallback = async () => {
+    preloadFetches += 1;
+    return { tasks: [task], providerFailed: false };
+  };
+  preloadBoard.loadWorkspaceTaskSpecs = async () => new Map();
+  preloadBoard.getTasksJsonWarning = async () => undefined;
+  try {
+    await preloadBoard.refresh();
+    assert.equal(preloadFetches, 1, 'Preloading should perform discovery before the view opens.');
+    assert.ok(preloadView.pending?.some(snapshot => snapshot.name === taskLabel));
+    const replayedMessages = [];
+    preloadView.resolveWebviewView({ webview: {
+      options: {}, html: '',
+      onDidReceiveMessage: () => ({ dispose() {} }),
+      postMessage: message => { replayedMessages.push(message); return Promise.resolve(true); }
+    } });
+    assert.ok(replayedMessages.some(message =>
+      message.command === 'render' && message.snapshots.some(snapshot => snapshot.name === taskLabel)
+    ), 'Opening the view must display the already discovered task.');
+    assert.equal(preloadFetches, 1, 'Opening the view must not repeat provider discovery.');
+  } finally {
+    preloadBoard.dispose();
+  }
+
   // Use the real workspace, document and editor APIs to check card navigation.
   const navigationBoard = new extensionModule.TaskBoard({
     workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
