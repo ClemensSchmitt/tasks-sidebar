@@ -49,6 +49,7 @@ The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enable
 - Running, stopping, waiting-for-end, failed, cancelled, unknown and stale states
 - Search by task name, provider, group, workspace folder or tags
 - Assign multiple tags in `tasks.json` (for example, `"tags": ["tag1", "tag2"]`) and filter by all selected tags (AND)
+- Optional `.*` toggle inside search: JavaScript regular expressions (case-insensitive); invalid patterns show inline feedback without replacing the previous results
 - Deterministic filters for running, failed, completed, unknown/stale and external tasks
 - Deterministic sorting by name, status, elapsed time or folder
 - Edit `tasks.json`, or create a shell task through the board
