@@ -209,6 +209,13 @@ export function mergeProgressElapsed(previousElapsedMs: number, backendElapsedMs
   return Math.max(0, previousElapsedMs, backendElapsedMs, projectedElapsedMs);
 }
 
+/** Shared regex validation contract, also mirrored in the isolated webview. */
+export function compileTaskSearchRegex(query: string): RegExp {
+  const expression = query.trim();
+  if (expression.length > 256) throw new Error('Regular expression is too long (maximum 256 characters).');
+  return new RegExp(expression, 'i');
+}
+
 /**
  * Keeps the webview's query/filter/sort semantics deterministic and testable.
  * The webview mirrors this small function because it runs in an isolated DOM.
@@ -218,9 +225,13 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
   query = '',
   filter: TaskBoardFilter = 'all',
   sort: TaskBoardSort = 'name',
-  tagFilter: string | readonly string[] = []
+  tagFilter: string | readonly string[] = [],
+  regexEnabled = false
 ): T[] {
   const needle = query.trim().toLocaleLowerCase();
+  const pattern = regexEnabled && query.trim()
+    ? compileTaskSearchRegex(query)
+    : undefined;
   const selectedTags = (typeof tagFilter === 'string' ? [tagFilter] : tagFilter)
     .map(tag => tag.trim().toLocaleLowerCase()).filter(Boolean);
   const matchesFilter = (task: T): boolean => {
@@ -237,10 +248,9 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
   };
   const matchesQuery = (task: T): boolean => {
     if (!needle) return true;
-    return [task.name, task.source, task.group, task.workspaceFolderName ?? '', ...(task.tags ?? [])]
-      .join(' ')
-      .toLocaleLowerCase()
-      .includes(needle);
+    const fields = [task.name, task.source, task.group, task.workspaceFolderName ?? '', ...(task.tags ?? [])];
+    if (pattern) return fields.some(field => pattern.test(String(field).slice(0, 2048)));
+    return fields.join(' ').toLocaleLowerCase().includes(needle);
   };
   const compareText = (left: string, right: string): number => left.localeCompare(right) || 0;
   const statusRank = (task: T): number => task.isRunning ? 0 : task.lastOutcome === 'failed' ? 1 : task.lastOutcome === 'unknown' || task.lastOutcome === 'stale' ? 2 : task.lastOutcome === 'success' ? 3 : 4;
