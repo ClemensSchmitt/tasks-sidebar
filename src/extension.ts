@@ -107,6 +107,7 @@ type PersistedActiveObservation = PersistedTaskObservation & {
 
 const HISTORY_KEY = 'tasksSidebar.history';
 const LAST_GOOD_KEY = 'tasksSidebar.lastGoodSnapshots';
+const CUSTOM_ORDER_KEY = 'tasksSidebar.customTaskOrder';
 const ACTIVE_OBSERVATIONS_KEY = 'tasksSidebar.activeObservations';
 const MAX_HISTORY_ENTRIES = 20;
 const MAX_HISTORY_RECORDS = 200;
@@ -167,6 +168,7 @@ export class TaskBoard {
   private readonly executionIds = new WeakMap<vscode.TaskExecution, string>();
   private readonly starting = new Set<string>();
   private readonly history: Record<string, TaskHistory>;
+  private customTaskOrder: string[];
   private nextExecutionNumber = 1;
   private refreshRevision = 0;
   private lastPublishedSnapshots: TaskSnapshot[] = [];
@@ -178,6 +180,10 @@ export class TaskBoard {
   private activeObservationSignature = '';
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    const savedOrder = context.workspaceState.get<unknown>(CUSTOM_ORDER_KEY, []);
+    this.customTaskOrder = Array.isArray(savedOrder)
+      ? [...new Set(savedOrder.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))].slice(0, 10000)
+      : [];
     const storedHistory = context.workspaceState.get<Record<string, TaskHistory>>(HISTORY_KEY, {});
     this.history = storedHistory && typeof storedHistory === 'object' ? storedHistory : {};
     const historyKeyCount = Object.keys(this.history).length;
@@ -199,6 +205,24 @@ export class TaskBoard {
 
   attachView(view: TaskBoardView): void {
     this.view = view;
+  }
+
+  getCustomTaskOrder(): string[] {
+    return [...this.customTaskOrder];
+  }
+
+  async updateCustomTaskOrder(value: unknown): Promise<void> {
+    if (!Array.isArray(value) || value.length > 10000 ||
+        !value.every(id => typeof id === 'string' && id.length > 0 && id.length <= 2048) ||
+        new Set(value).size !== value.length) {
+      throw new Error('Invalid custom task order.');
+    }
+    this.customTaskOrder = [...value];
+    try {
+      await this.context.workspaceState.update(CUSTOM_ORDER_KEY, this.customTaskOrder);
+    } catch (error) {
+      this.reportError('The custom task order could not be saved.', error);
+    }
   }
 
   rehydrateRunningTasks(): void {
@@ -1064,6 +1088,7 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
         case 'restart': await this.board.restart(requiredId()); break;
         case 'refresh': await this.board.refresh(); break;
         case 'ready': if (this.pending) this.render(this.pending, this.pendingWarning); break;
+        case 'saveOrder': await this.board.updateCustomTaskOrder('order' in message ? message.order : undefined); break;
         case 'edit': await this.board.openTasksJson(optionalId()); break;
         case 'create': await this.board.createTask(); break;
         default: throw new Error('The sidebar sent an unsupported action.');
@@ -1076,7 +1101,9 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
   render(snapshots: TaskSnapshot[], warning?: string): void {
     this.pending = snapshots;
     this.pendingWarning = warning;
-    const message = this.view?.webview.postMessage({ command: 'render', snapshots, warning });
+    const message = this.view?.webview.postMessage({
+      command: 'render', snapshots, warning, customOrder: this.board.getCustomTaskOrder?.() ?? []
+    });
     if (message) void Promise.resolve(message).catch(error => this.board.reportError('The Tasks Sidebar could not be updated.', error));
   }
 }
@@ -1281,6 +1308,11 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     #tagFilter label { display: flex; align-items: center; gap: 4px; overflow-wrap: anywhere; }
     #tagFilter input { flex: none; }
     .tag-filter summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .task[draggable="true"] { cursor: grab; }
+    .task[draggable="true"]:active { cursor: grabbing; }
+    .task.drag-over { outline: 2px dashed var(--focus); outline-offset: 2px; }
+    .move-actions { display: flex; gap: 2px; }
+    .move-actions button { min-width: 23px; min-height: 23px; }
     .filtered-empty { padding: 18px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); text-align: center; }
     .empty { padding: 8px 0 4px; color: var(--muted); line-height: 1.55; }
     .empty-state { position: relative; isolation: isolate; min-height: 230px; padding: 8px 0 18px; }
@@ -1373,7 +1405,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     <div class="view-options">
       <select id="filter" class="view-select" aria-label="Filter tasks"><option value="all">All tasks</option><option value="running">Running</option><option value="failed">Failed</option><option value="completed">Completed</option><option value="unknown">Unknown / stale</option><option value="external">External providers</option></select>
       <details class="tag-filter"><summary id="tagSummary">Tags (all required)</summary><div id="tagFilter" role="group" aria-label="Filter tasks by tags (all required)"></div><button id="clearTags" type="button">Clear tags</button></details>
-      <select id="sort" class="view-select" aria-label="Sort tasks"><option value="name">Sort: name</option><option value="status">Sort: status</option><option value="elapsed">Sort: elapsed</option><option value="folder">Sort: folder</option></select>
+      <select id="sort" class="view-select" aria-label="Sort tasks"><option value="name">Sort: name</option><option value="status">Sort: status</option><option value="elapsed">Sort: elapsed</option><option value="folder">Sort: folder</option><option value="custom">Sort: custom (drag)</option></select>
     </div>
   </div>
   <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
@@ -1400,6 +1432,8 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     let selectedFilter = 'all';
     let selectedTags = [];
     let selectedSort = 'name';
+    let customOrder = [];
+    let draggedId = '';
     let tagOptionsSignature = '';
     let progressFrame = 0;
     let progressOffset = -170;
@@ -1448,6 +1482,26 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     });
     document.getElementById('clearTags')?.addEventListener('click', () => { selectedTags = []; render(allTasks); });
     sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
+
+    function moveVisibleTask(movedId, targetId, after = false) {
+      const visible = applyView(allTasks, query, selectedFilter, selectedSort, selectedTag, customOrder);
+      const visibleIds = [...new Set(visible.map(task => task.id))];
+      const discovered = [...new Set(allTasks.map(task => task.id))];
+      // Preserve hidden entries in their existing slots; new entries are appended
+      // in the current visible order, then by discovery order.
+      const complete = [...new Set([...customOrder, ...visibleIds, ...discovered])];
+      const selected = new Set(visibleIds);
+      if (!selected.has(movedId) || !selected.has(targetId) || movedId === targetId) return;
+      const movedVisible = visibleIds.filter(id => id !== movedId);
+      movedVisible.splice(movedVisible.indexOf(targetId) + (after ? 1 : 0), 0, movedId);
+      let cursor = 0;
+      customOrder = complete.map(id => selected.has(id) ? movedVisible[cursor++] : id);
+      selectedSort = 'custom';
+      if (sort) sort.value = 'custom';
+      vscode.postMessage({ command: 'saveOrder', order: customOrder });
+      render(allTasks);
+    }
+
     function isTaskSnapshot(snapshot) {
       const optionalStringKeys = ['workspaceFolderUri', 'workspaceFolderName', 'dependencyState', 'dependencyFailure', 'executionId', 'lastOutcome'];
       const optionalNumberKeys = ['plannedMs', 'lastDurationMs', 'overtimeMs', 'lastExitCode'];
@@ -1483,6 +1537,10 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       const message = event.data;
       if (!message || message.command !== 'render' || !Array.isArray(message.snapshots) ||
         !message.snapshots.every(isTaskSnapshot)) return;
+      if (Array.isArray(message.customOrder) &&
+          message.customOrder.every(id => typeof id === 'string')) {
+        customOrder = [...new Set(message.customOrder)];
+      }
       render(message.snapshots);
       if (message.warning) renderWarning(message.warning);
       else clearWarning();
@@ -1659,9 +1717,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         restoreListFocus(focusBookmark);
         return;
       }
-      const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort, selectedTags, regexPattern);
+      const visibleTasks = applyView(tasks, query, selectedFilter, selectedSort, selectedTags, regexPattern, customOrder);
       if (!visibleTasks.length) {
-        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedTags, selectedSort, regexEnabled]);
+        const emptySignature = JSON.stringify(['filtered-empty', query, selectedFilter, selectedTags, selectedSort, regexEnabled, customOrder]);
         if (lastRenderSignature === emptySignature) return;
         lastRenderSignature = emptySignature;
         list.innerHTML = '<div class="filtered-empty" role="status"><strong>No matching tasks</strong><br><span>Change the search, filters, or tag to see more tasks.</span></div>';
@@ -1688,7 +1746,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         }
       });
       const renderSignature = JSON.stringify([
-        query, selectedFilter, selectedTags, selectedSort, regexEnabled,
+        query, selectedFilter, selectedTags, selectedSort, regexEnabled, customOrder,
         ...visibleTasks.map(task => [
           task.id, task.executionId, task.name, task.source, task.group, task.tags || [], task.workspaceFolderName,
           task.isBackground, task.isDependency, task.dependsOn, task.dependsOrder, task.dependencyIds,
@@ -1724,8 +1782,8 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const accessibleLabel = escapeHtml(accessibleTaskLabel(task, status, planned));
         const tagsMarkup = taskTagsMarkup(task);
         const progressValue = indeterminate ? '' : ' aria-valuenow="' + Math.round(barWidth) + '"';
-        return '<article class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" tabindex="-1" data-task-id="' + escapeHtml(task.id) + '" data-execution-id="' + escapeHtml(task.executionId || '') + '" aria-label="' + accessibleLabel + '">' +
-          '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><h2 class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</h2><span class="task-actions">' + action + restartAction + editAction + '</span></div>' +
+        return '<article draggable="true" class="task ' + stateClass + dependencyClass + (task.orphaned ? ' orphaned' : '') + (task.isStopping ? ' stopping' : '') + (task.overtimeMs ? ' overdue' : '') + '" role="article" tabindex="-1" data-task-id="' + escapeHtml(task.id) + '" data-execution-id="' + escapeHtml(task.executionId || '') + '" aria-label="' + accessibleLabel + '">' +
+          '<div class="row"><span class="glyph" aria-hidden="true">' + icon + '</span><h2 class="name" title="' + escapeHtml(task.name) + '">' + escapeHtml(task.name) + '</h2><span class="task-actions"><span class="move-actions"><button type="button" data-reorder="up" data-id="' + encodeURIComponent(task.id) + '" aria-label="Move ' + escapeHtml(task.name) + ' up" title="Move up">↑</button><button type="button" data-reorder="down" data-id="' + encodeURIComponent(task.id) + '" aria-label="Move ' + escapeHtml(task.name) + ' down" title="Move down">↓</button></span>' + action + restartAction + editAction + '</span></div>' +
           '<div class="sub" title="' + escapeHtml(task.source + ' · ' + task.group + (task.workspaceFolderName ? ' · ' + task.workspaceFolderName : '')) + '">' + escapeHtml(task.source) + ' · ' + escapeHtml(task.group) + (task.workspaceFolderName ? ' · ' + escapeHtml(task.workspaceFolderName) : '') + (task.isDependency ? ' · Child' : task.dependsOn.length ? ' · Depends on ' + escapeHtml(task.dependsOn.join(', ')) + ' (' + escapeHtml(task.dependsOrder) + ')' : '') + executionLabel + (task.orphaned ? ' · Orphaned' : '') + '</div>' + tagsMarkup +
           '<div class="bar" role="progressbar" aria-label="Progress for ' + escapeHtml(task.name) + '" aria-valuemin="0" aria-valuemax="100"' + progressValue + ' aria-valuetext="' + escapeHtml(status) + '"><div class="fill' + (indeterminate ? ' indeterminate' : '') + '" data-progress-id="' + progressId + '" data-planned-ms="' + plannedMs + '" style="width:' + barWidth + '%"></div></div>' +
           '<div class="meta"><span class="' + (task.overtimeMs ? 'late' : '') + '">' + escapeHtml(status) + '</span><span>' + escapeHtml(planned) + '</span></div>' +
@@ -1736,6 +1794,40 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const encodedId = target.dataset.id;
         if (!encodedId) return;
         vscode.postMessage({ command: target.dataset.action, id: decodeURIComponent(encodedId) });
+      }));
+      list.querySelectorAll('article[data-task-id]').forEach(article => {
+        article.addEventListener('dragstart', event => {
+          draggedId = article.getAttribute('data-task-id') || '';
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', draggedId);
+          }
+        });
+        article.addEventListener('dragover', event => {
+          if (!draggedId) return;
+          event.preventDefault();
+          article.classList.add('drag-over');
+        });
+        article.addEventListener('dragleave', () => article.classList.remove('drag-over'));
+        article.addEventListener('drop', event => {
+          event.preventDefault();
+          article.classList.remove('drag-over');
+          const targetId = article.getAttribute('data-task-id') || '';
+          const bounds = article.getBoundingClientRect();
+          const after = event.clientY > bounds.top + bounds.height / 2;
+          moveVisibleTask(draggedId, targetId, after);
+          draggedId = '';
+        });
+        article.addEventListener('dragend', () => { draggedId = ''; article.classList.remove('drag-over'); });
+      });
+      list.querySelectorAll('[data-reorder]').forEach(button => button.addEventListener('click', event => {
+        const target = event.currentTarget;
+        const id = decodeURIComponent(target.dataset.id || '');
+        const visibleIds = [...new Set(applyView(allTasks, query, selectedFilter, selectedSort, selectedTag, customOrder).map(task => task.id))];
+        const index = visibleIds.indexOf(id);
+        if (index < 0) return;
+        if (target.dataset.reorder === 'up' && index > 0) moveVisibleTask(id, visibleIds[index - 1]);
+        if (target.dataset.reorder === 'down' && index < visibleIds.length - 1) moveVisibleTask(id, visibleIds[index + 1], true);
       }));
       restoreListFocus(focusBookmark);
       if (list.querySelector('.fill.indeterminate')) startProgressAnimation();
@@ -1818,7 +1910,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       }
       tagFilter.querySelectorAll('input').forEach(input => { input.checked = selectedTags.includes(input.value); });
     }
-    function applyView(tasks, query, filter, sort, tagFilter, regexPattern) {
+    function applyView(tasks, query, filter, sort, tagFilter, regexPattern, order = []) {
       const needle = String(query || '').trim().toLocaleLowerCase();
       const selectedTags = tagFilter.map(tag => tag.trim().toLocaleLowerCase()).filter(Boolean);
       const matches = tasks.filter(task => {
@@ -1836,9 +1928,12 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         if (filter === 'external' && task.source === 'Workspace') return false;
         return true;
       });
+      const customIndex = new Map(order.map((id, index) => [id, index]));
       const rank = task => task.isRunning ? 0 : task.lastOutcome === 'failed' ? 1 : ['unknown', 'stale'].includes(task.lastOutcome) ? 2 : task.lastOutcome === 'success' ? 3 : 4;
       return matches.slice().sort((left, right) => {
-        let result = sort === 'status' ? rank(left) - rank(right) : sort === 'elapsed' ? right.elapsedMs - left.elapsedMs : sort === 'folder' ? (left.workspaceFolderName || '').localeCompare(right.workspaceFolderName || '') : 0;
+        let result = sort === 'status' ? rank(left) - rank(right) : sort === 'elapsed' ? right.elapsedMs - left.elapsedMs : sort === 'folder' ? (left.workspaceFolderName || '').localeCompare(right.workspaceFolderName || '') : sort === 'custom' ? (customIndex.get(left.id) ?? Infinity) - (customIndex.get(right.id) ?? Infinity) : 0;
+        // Two unknown IDs yield Infinity - Infinity = NaN: use normal name ordering.
+        if (Number.isNaN(result)) result = 0;
         return result || left.name.localeCompare(right.name) || left.source.localeCompare(right.source) || left.id.localeCompare(right.id) || (left.executionId || '').localeCompare(right.executionId || '');
       });
     }
