@@ -453,3 +453,30 @@ test('task definition navigation rejects duplicate, renamed and nested labels', 
     assert.equal(JSON.parse(text.slice(range.start, range.end)).command, folder);
   }
 });
+
+test('optional regex search supports anchors, alternatives, fields and existing filters', () => {
+  const { compileTaskSearchRegex } = require('../out/runtime.js');
+  const tasks = [
+    { id: 'a', name: 'Build app', source: 'Workspace', group: 'build', workspaceFolderName: 'Client', tags: ['ci', 'frontend'], isRunning: true, elapsedMs: 5 },
+    { id: 'b', name: 'Test app', source: 'Workspace', group: 'test', workspaceFolderName: 'Server', tags: ['backend'], isRunning: false, elapsedMs: 0 },
+    { id: 'c', name: 'Lint app', source: 'npm', group: 'lint', workspaceFolderName: 'Client', tags: ['format'], isRunning: false, elapsedMs: 0 },
+  ];
+  const ids = (query, enabled, filter = 'all', sort = 'name', tag = '') =>
+    filterAndSortTaskSnapshots(tasks, query, filter, sort, tag, enabled).map(task => task.id);
+  assert.deepEqual(ids('^(build|test)', true), ['a', 'b']);
+  assert.deepEqual(ids('lint|format', true), ['c']);
+  assert.deepEqual(ids('^client$', true), ['a', 'c']);
+  assert.deepEqual(ids('^frontend$', true), ['a']);
+  assert.deepEqual(ids('^npm$', true, 'external'), ['c']);
+  assert.deepEqual(ids('app$', true, 'running'), ['a']);
+  assert.deepEqual(ids('app$', true, 'all', 'name', 'ci'), ['a']);
+  assert.deepEqual(ids('.*', true), ['a', 'c', 'b']);
+  assert.deepEqual(ids('', true), ids('', false));
+  assert.deepEqual(ids('^(build|test)', false), []);
+  assert.deepEqual(ids('build', false), ['a']);
+  assert.deepEqual(ids('BUILD', true), ['a']);
+  assert.deepEqual(ids('.', false), []);
+  assert.throws(() => compileTaskSearchRegex('['), SyntaxError);
+  assert.throws(() => ids('(', true), SyntaxError);
+  assert.throws(() => ids('x'.repeat(257), true), /too long/);
+});
