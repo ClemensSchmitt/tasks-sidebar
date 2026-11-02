@@ -131,6 +131,8 @@ function createEmbeddedWebviewHarness(html) {
     search: element('search'),
     regexToggle: element('regexToggle'),
     searchError: element('searchError'),
+    sort: element('sort'),
+    setSort(value) { const sort = element('sort'); sort.value = value; sort.listeners.get('change')?.(); },
     warningRegion: element('warning'),
     setSearch(value) { const search = element('search'); search.value = value; search.listeners.get('input')?.(); },
     toggleRegex() { element('regexToggle').listeners.get('click')?.(); },
@@ -332,6 +334,11 @@ async function run() {
   assert.match(webviewHarness.html, /filter\?\.addEventListener\('change'/);
   assert.match(webviewHarness.html, /tagFilter\?\.addEventListener\('change'/);
   assert.match(webviewHarness.html, /sort\?\.addEventListener\('change'/);
+  assert.ok(webviewHarness.html.includes('Sort: custom (drag)'));
+  assert.ok(webviewHarness.html.includes('data-reorder="up"'));
+  assert.ok(webviewHarness.html.includes('data-reorder="down"'));
+  assert.ok(webviewHarness.html.includes("addEventListener('dragstart'"));
+  assert.ok(webviewHarness.html.includes("addEventListener('drop'"));
 
   for (const route of routeCases) {
     await webviewHarness.send({ command: route.command, ...(route.id ? { id: route.id } : {}) });
@@ -343,7 +350,8 @@ async function run() {
   assert.deepEqual(webviewHarness.postedMessages, [{
     command: 'render',
     snapshots: uiSnapshots,
-    warning: 'Provider warning'
+    warning: 'Provider warning',
+    customOrder: []
   }]);
 
   const embeddedWebview = createEmbeddedWebviewHarness(
@@ -400,6 +408,11 @@ async function run() {
   assert.equal(embeddedWebview.postedMessages.length, messageCountBeforeRegex,
     'Regex changes must not request new task discovery.');
 
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, untaggedTaskSnapshot], customOrder: ['untagged-task', 'validated-task'] });
+  embeddedWebview.setSort('custom');
+  assert.ok(embeddedWebview.list.innerHTML.indexOf('Untagged task') < embeddedWebview.list.innerHTML.indexOf('Validated task'),
+    'Custom sort uses the saved logical task order.');
+  embeddedWebview.setSort('name');
   assert.match(embeddedWebview.tagFilter.innerHTML, /value="test &amp; smoke"/, 'Tag choices should be populated from task snapshots.');
   embeddedWebview.selectTag('test & smoke');
   assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Selecting a tag keeps matching tasks visible.');
