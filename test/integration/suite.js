@@ -256,6 +256,18 @@ async function run() {
   recordingBoard.reportError = () => assert.fail('Successful sidebar actions must not report an error.');
   const webviewHarness = createWebviewHarness(recordingBoard);
 
+  // Webview messages may be posted before its JavaScript has registered
+  // listeners. A readiness handshake must replay the latest cached snapshot.
+  const early = [{ id: 'preloaded-task', name: 'Preloaded task', source: 'Workspace' }];
+  webviewHarness.provider.render(early);
+  const beforeReady = webviewHarness.postedMessages.length;
+  await webviewHarness.send({ command: 'ready' });
+  assert.equal(webviewHarness.postedMessages.length, beforeReady + 1);
+  assert.deepEqual(webviewHarness.postedMessages.at(-1).snapshots, early);
+  assert.match(webviewHarness.html, /vscode\.postMessage\(\{ command: 'ready' \}\)/);
+  assert.ok(manifest.activationEvents.includes('onStartupFinished'),
+    'Task discovery must activate even if the sidebar stays closed.');
+
   for (const control of [
     'id="refresh"', 'id="create"', 'id="edit"',
     'id="search"', 'id="filter"', 'id="tagFilter"', 'id="sort"'
