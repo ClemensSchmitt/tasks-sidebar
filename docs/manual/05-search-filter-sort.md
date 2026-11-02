@@ -112,6 +112,23 @@ Idle/completed tasks commonly have zero current elapsed time, so ties then fall 
 
 Workspace-folder name sorts ascending. Tasks without a folder use an empty folder value for comparison, followed by normal tie-breakers.
 
+### Sort: custom (drag)
+
+Choose **Sort: custom (drag)** or drag a visible task card to a new position.
+The task card also provides **Move up** and **Move down** keyboard buttons.
+Dragging automatically enables custom sorting. The order is saved in VS Code
+workspace state rather than changing `tasks.json`.
+
+Reordering within a filtered view changes only the positions of visible
+logical tasks. Hidden tasks keep their relative slots, so clearing the filter
+restores them in those positions. Parallel executions of the same logical
+task use its stable ID and move together. New tasks with no saved ID appear
+after previously ordered tasks. Removed task IDs remain in the saved order
+in case the tasks later return.
+
+Selecting name/status/elapsed/folder does not delete the custom order;
+choose **Sort: custom (drag)** again to restore it.
+
 ## Deterministic tie handling
 
 After the selected sort key, Tasks Sidebar uses stable comparison fields:
