@@ -119,7 +119,12 @@ function createEmbeddedWebviewHarness(html) {
   return {
     list: element('list'),
     tagFilter: element('tagFilter'),
+    search: element('search'),
+    regexToggle: element('regexToggle'),
+    searchError: element('searchError'),
     warningRegion: element('warning'),
+    setSearch(value) { const search = element('search'); search.value = value; search.listeners.get('input')?.(); },
+    toggleRegex() { element('regexToggle').listeners.get('click')?.(); },
     postedMessages,
     selectTag(value) {
       const select = element('tagFilter');
@@ -318,6 +323,26 @@ async function run() {
   assert.match(renderedTaskHtml, /Validated task/, 'A valid render message should display the task.');
   assert.match(renderedTaskHtml, /test &amp; smoke/, 'Task tags should be rendered as escaped labels.');
   assert.match(renderedTaskHtml, /Untagged task/, 'Tasks without tags remain visible before filtering.');
+  assert.match(embeddedWebview.regexToggle.id, /regexToggle/);
+  assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'false');
+  const messageCountBeforeRegex = embeddedWebview.postedMessages.length;
+  embeddedWebview.setSearch('^Valid');
+  assert.match(embeddedWebview.list.innerHTML, /No matching tasks/, 'Literal search does not interpret anchors.');
+  embeddedWebview.toggleRegex();
+  assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'true');
+  assert.match(embeddedWebview.list.innerHTML, /Validated task/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/);
+  embeddedWebview.setSearch('[');
+  assert.match(embeddedWebview.searchError.textContent, /Invalid regular expression/);
+  assert.equal(embeddedWebview.search.getAttribute('aria-invalid'), 'true');
+  assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Invalid regex preserves the last valid cards.');
+  embeddedWebview.toggleRegex();
+  assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(embeddedWebview.searchError.textContent, '');
+  embeddedWebview.setSearch('');
+  assert.equal(embeddedWebview.postedMessages.length, messageCountBeforeRegex,
+    'Regex changes must not request new task discovery.');
+
   assert.match(embeddedWebview.tagFilter.innerHTML, /value="test &amp; smoke"/, 'Tag choices should be populated from task snapshots.');
   embeddedWebview.selectTag('test & smoke');
   assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Selecting a tag keeps matching tasks visible.');
