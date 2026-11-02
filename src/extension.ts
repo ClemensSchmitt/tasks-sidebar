@@ -107,6 +107,7 @@ type PersistedActiveObservation = PersistedTaskObservation & {
 
 const HISTORY_KEY = 'tasksSidebar.history';
 const LAST_GOOD_KEY = 'tasksSidebar.lastGoodSnapshots';
+const CUSTOM_ORDER_KEY = 'tasksSidebar.customTaskOrder';
 const ACTIVE_OBSERVATIONS_KEY = 'tasksSidebar.activeObservations';
 const MAX_HISTORY_ENTRIES = 20;
 const MAX_HISTORY_RECORDS = 200;
@@ -157,6 +158,7 @@ export class TaskBoard {
   private readonly executionIds = new WeakMap<vscode.TaskExecution, string>();
   private readonly starting = new Set<string>();
   private readonly history: Record<string, TaskHistory>;
+  private customTaskOrder: string[];
   private nextExecutionNumber = 1;
   private refreshRevision = 0;
   private lastGoodSnapshots: TaskSnapshot[];
@@ -165,6 +167,10 @@ export class TaskBoard {
   private activeObservationSignature = '';
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    const savedOrder = context.workspaceState.get<unknown>(CUSTOM_ORDER_KEY, []);
+    this.customTaskOrder = Array.isArray(savedOrder)
+      ? [...new Set(savedOrder.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))].slice(0, 10000)
+      : [];
     const storedHistory = context.workspaceState.get<Record<string, TaskHistory>>(HISTORY_KEY, {});
     this.history = storedHistory && typeof storedHistory === 'object' ? storedHistory : {};
     const historyKeyCount = Object.keys(this.history).length;
@@ -184,6 +190,24 @@ export class TaskBoard {
 
   attachView(view: TaskBoardView): void {
     this.view = view;
+  }
+
+  getCustomTaskOrder(): string[] {
+    return [...this.customTaskOrder];
+  }
+
+  async updateCustomTaskOrder(value: unknown): Promise<void> {
+    if (!Array.isArray(value) || value.length > 10000 ||
+        !value.every(id => typeof id === 'string' && id.length > 0 && id.length <= 2048) ||
+        new Set(value).size !== value.length) {
+      throw new Error('Invalid custom task order.');
+    }
+    this.customTaskOrder = [...value];
+    try {
+      await this.context.workspaceState.update(CUSTOM_ORDER_KEY, this.customTaskOrder);
+    } catch (error) {
+      this.reportError('The custom task order could not be saved.', error);
+    }
   }
 
   rehydrateRunningTasks(): void {
@@ -1021,6 +1045,7 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
         case 'stop': await this.board.stop(requiredId()); break;
         case 'restart': await this.board.restart(requiredId()); break;
         case 'refresh': await this.board.refresh(); break;
+        case 'saveOrder': await this.board.updateCustomTaskOrder('order' in message ? message.order : undefined); break;
         case 'edit': await this.board.openTasksJson(optionalId()); break;
         case 'create': await this.board.createTask(); break;
         default: throw new Error('The sidebar sent an unsupported action.');
@@ -1033,7 +1058,9 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
   render(snapshots: TaskSnapshot[], warning?: string): void {
     this.pending = snapshots;
     this.pendingWarning = warning;
-    const message = this.view?.webview.postMessage({ command: 'render', snapshots, warning });
+    const message = this.view?.webview.postMessage({
+      command: 'render', snapshots, warning, customOrder: this.board.getCustomTaskOrder?.() ?? []
+    });
     if (message) void Promise.resolve(message).catch(error => this.board.reportError('The Tasks Sidebar could not be updated.', error));
   }
 }
