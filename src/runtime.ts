@@ -210,6 +210,30 @@ export function mergeProgressElapsed(previousElapsedMs: number, backendElapsedMs
 }
 
 /**
+ * Move one visible logical task among the visible positions in the persisted
+ * workspace order. Non-visible tasks keep their relative positions.
+ */
+export function reorderVisibleTaskIds(
+  order: readonly string[],
+  visibleIds: readonly string[],
+  movedId: string,
+  targetId: string,
+  after = false
+): string[] {
+  const uniqueOrder = [...new Set(order.filter(id => typeof id === 'string' && id.length > 0))];
+  const known = new Set(uniqueOrder);
+  const visible = [...new Set(visibleIds)].filter(id => known.has(id));
+  if (!visible.includes(movedId) || !visible.includes(targetId) || movedId === targetId) {
+    return uniqueOrder;
+  }
+  const nextVisible = visible.filter(id => id !== movedId);
+  nextVisible.splice(nextVisible.indexOf(targetId) + (after ? 1 : 0), 0, movedId);
+  const visibleSet = new Set(visible);
+  let cursor = 0;
+  return uniqueOrder.map(id => visibleSet.has(id) ? nextVisible[cursor++] : id);
+}
+
+/**
  * Keeps the webview's query/filter/sort semantics deterministic and testable.
  * The webview mirrors this small function because it runs in an isolated DOM.
  */
