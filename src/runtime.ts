@@ -211,7 +211,7 @@ export function mergeProgressElapsed(previousElapsedMs: number, backendElapsedMs
 
 /** Shared regex validation contract, also mirrored in the isolated webview. */
 export function compileTaskSearchRegex(query: string): RegExp {
-  const expression = query.trim();
+  const expression = query;
   if (expression.length > 256) throw new Error('Regular expression is too long (maximum 256 characters).');
   return new RegExp(expression, 'i');
 }
