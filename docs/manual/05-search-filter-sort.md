@@ -66,6 +66,22 @@ The tag dropdown is independent of the status filter and can be combined with se
 
 The list is refreshed with task discovery. If the selected tag is removed from every task, the tag filter resets to **All tags**.
 
+### Regular expression search
+
+The `.*` button inside the search field enables/disables regex interpretation.
+With the button off (default), search is a case-insensitive literal substring.
+With it on, the query is a JavaScript regular expression matched case-insensitively
+against each task name, provider, group, folder, or tag independently (for
+example `^(build|test)`, `lint|format`). The active button remains visibly
+selected; the mode and query are restored when the webview is recreated.
+
+Invalid expressions display an inline, screen-reader-accessible message;
+the last valid cards remain visible until the expression is fixed or regex
+is switched off. Regexes are limited to 256 characters and each searchable
+field is examined up to its first 2048 characters to reduce search costs.
+Complex expressions may still be slow; avoid nested, unbounded repetitions.
+Regex mode combines with existing status/tag filters and sorting.
+
 ## Sorting
 
 ### Sort: name
