@@ -217,10 +217,13 @@ export class TaskBoard {
         new Set(value).size !== value.length) {
       throw new Error('Invalid custom task order.');
     }
+    const previousOrder = this.customTaskOrder;
     this.customTaskOrder = [...value];
     try {
       await this.context.workspaceState.update(CUSTOM_ORDER_KEY, this.customTaskOrder);
     } catch (error) {
+      this.customTaskOrder = previousOrder;
+      this.view?.render(this.lastPublishedSnapshots, this.lastPublishedWarning);
       this.reportError('The custom task order could not be saved.', error);
     }
   }
@@ -1429,9 +1432,12 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     let regexEnabled = savedSearch.regexEnabled === true;
     if (search) search.value = query;
     regexToggle?.setAttribute('aria-pressed', String(regexEnabled));
+    if (regexToggle) regexToggle.title = regexEnabled ? 'Use Regular Expression (enabled)' : 'Use Regular Expression';
     let selectedFilter = 'all';
     let selectedTags = [];
-    let selectedSort = 'name';
+    let selectedSort = ['name', 'status', 'elapsed', 'folder', 'custom'].includes(savedSearch.selectedSort)
+      ? savedSearch.selectedSort : 'name';
+    if (sort) sort.value = selectedSort;
     let customOrder = [];
     let draggedId = '';
     let tagOptionsSignature = '';
@@ -1456,7 +1462,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     document.getElementById('create')?.addEventListener('click', () => vscode.postMessage({ command: 'create' }));
     document.getElementById('edit')?.addEventListener('click', () => vscode.postMessage({ command: 'edit' }));
     function persistSearch() {
-      vscode.setState?.({ ...savedSearch, query, regexEnabled });
+      vscode.setState?.({ ...savedSearch, query, regexEnabled, selectedSort });
     }
     function displayRegexError(message) {
       searchError.textContent = message;
@@ -1481,10 +1487,16 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       render(allTasks);
     });
     document.getElementById('clearTags')?.addEventListener('click', () => { selectedTags = []; render(allTasks); });
-    sort?.addEventListener('change', () => { selectedSort = sort.value; render(allTasks); });
+    sort?.addEventListener('change', () => { selectedSort = sort.value; persistSearch(); render(allTasks); });
+
+    function visibleForReorder() {
+      let pattern;
+      try { pattern = compileViewRegex(query); } catch { return []; }
+      return applyView(allTasks, query, selectedFilter, selectedSort, selectedTags, pattern, customOrder);
+    }
 
     function moveVisibleTask(movedId, targetId, after = false) {
-      const visible = applyView(allTasks, query, selectedFilter, selectedSort, selectedTag, customOrder);
+      const visible = visibleForReorder();
       const visibleIds = [...new Set(visible.map(task => task.id))];
       const discovered = [...new Set(allTasks.map(task => task.id))];
       // Preserve hidden entries in their existing slots; new entries are appended
@@ -1498,6 +1510,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       customOrder = complete.map(id => selected.has(id) ? movedVisible[cursor++] : id);
       selectedSort = 'custom';
       if (sort) sort.value = 'custom';
+      persistSearch();
       vscode.postMessage({ command: 'saveOrder', order: customOrder });
       render(allTasks);
     }
@@ -1823,7 +1836,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       list.querySelectorAll('[data-reorder]').forEach(button => button.addEventListener('click', event => {
         const target = event.currentTarget;
         const id = decodeURIComponent(target.dataset.id || '');
-        const visibleIds = [...new Set(applyView(allTasks, query, selectedFilter, selectedSort, selectedTag, customOrder).map(task => task.id))];
+        const visibleIds = [...new Set(visibleForReorder().map(task => task.id))];
         const index = visibleIds.indexOf(id);
         if (index < 0) return;
         if (target.dataset.reorder === 'up' && index > 0) moveVisibleTask(id, visibleIds[index - 1]);
