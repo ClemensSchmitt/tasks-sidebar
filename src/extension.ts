@@ -140,7 +140,17 @@ export function activate(context: vscode.ExtensionContext): void {
       const path = document.uri.path.replace(/\\/g, '/').toLowerCase();
       if (path.endsWith('/.vscode/tasks.json')) void board.refresh();
     }),
+    vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('tasksSidebar.includeExternalTasks')) void board.refresh();
+    }),
     { dispose: () => board.dispose() }
+  );
+  const tasksWatcher = vscode.workspace.createFileSystemWatcher('**/.vscode/tasks.json');
+  context.subscriptions.push(
+    tasksWatcher,
+    tasksWatcher.onDidChange(() => { void board.refresh(); }),
+    tasksWatcher.onDidCreate(() => { void board.refresh(); }),
+    tasksWatcher.onDidDelete(() => { void board.refresh(); })
   );
 
   board.rehydrateRunningTasks();
@@ -159,6 +169,9 @@ export class TaskBoard {
   private readonly history: Record<string, TaskHistory>;
   private nextExecutionNumber = 1;
   private refreshRevision = 0;
+  private lastPublishedSnapshots: TaskSnapshot[] = [];
+  private lastPublishedWarning?: string;
+  private lastPublishedAtMonotonic = 0;
   private lastGoodSnapshots: TaskSnapshot[];
   private lastGoodCacheSignature: string;
   private pendingActiveObservations: PersistedActiveObservation[];
@@ -179,7 +192,9 @@ export class TaskBoard {
     const storedObservations = context.workspaceState.get<PersistedActiveObservation[]>(ACTIVE_OBSERVATIONS_KEY, []);
     this.pendingActiveObservations = Array.isArray(storedObservations) ? storedObservations : [];
     this.activeObservationSignature = JSON.stringify(this.pendingActiveObservations);
-    this.timer = setInterval(() => { void this.publish(); }, 1000);
+    // Elapsed time updates must never restart task discovery. A slow provider can
+    // otherwise be cancelled indefinitely by the next one-second refresh.
+    this.timer = setInterval(() => this.tickElapsed(), 1000);
   }
 
   attachView(view: TaskBoardView): void {
@@ -198,6 +213,33 @@ export class TaskBoard {
 
   async refresh(): Promise<void> {
     await this.publish();
+  }
+
+  private renderSnapshot(snapshots: TaskSnapshot[], warning?: string): void {
+    this.lastPublishedSnapshots = snapshots;
+    this.lastPublishedWarning = warning;
+    this.lastPublishedAtMonotonic = monotonicNow();
+    this.view?.render(snapshots, warning);
+  }
+
+  private tickElapsed(): void {
+    if (this.disposed || !this.view || !this.lastPublishedSnapshots.some(snapshot => snapshot.isRunning)) return;
+    const delta = Math.max(0, monotonicNow() - this.lastPublishedAtMonotonic);
+    const updated = this.lastPublishedSnapshots.map(snapshot => {
+      if (!snapshot.isRunning) return snapshot;
+      const elapsedMs = snapshot.elapsedMs + delta;
+      const plannedMs = snapshot.plannedMs;
+      return {
+        ...snapshot,
+        elapsedMs,
+        progress: calculateProgressPercent(elapsedMs, plannedMs, true),
+        progressState: calculateProgressState({
+          isRunning: true, elapsedMs, plannedMs, lastOutcome: snapshot.lastOutcome
+        }),
+        overtimeMs: plannedMs && elapsedMs > plannedMs ? elapsedMs - plannedMs : undefined
+      };
+    });
+    this.view.render(updated, this.lastPublishedWarning);
   }
 
   async toggleExternalTasks(): Promise<void> {
@@ -833,7 +875,7 @@ export class TaskBoard {
         .get<boolean>('includeExternalTasks', false);
       if (!includeExternalTasks && !vscode.workspace.workspaceFolders?.length) {
         if (isCurrentRefresh(revision, this.refreshRevision) && this.view) {
-          this.view.render([], 'No workspace is open. Open a workspace and try again.');
+          this.renderSnapshot([], 'No workspace is open. Open a workspace and try again.');
         }
         return;
       }
@@ -941,7 +983,7 @@ export class TaskBoard {
         void Promise.resolve(this.context.workspaceState.update(LAST_GOOD_KEY, cacheSnapshots))
           .catch(error => this.reportError('The last valid task snapshot could not be saved.', error));
       }
-      this.view.render(snapshots, warning);
+      this.renderSnapshot(snapshots, warning);
     } catch (error) {
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       let warning = `[${hostLabel()}] Task discovery failed. Check tasks.json, permissions, or external providers and try again.`;
@@ -956,7 +998,7 @@ export class TaskBoard {
         if (!includeExternalTasks && snapshot.source !== 'Workspace') return false;
         return isWorkspaceFolderVisible(snapshot.workspaceFolderUri, currentFolders, includeExternalTasks);
       });
-      this.view.render(fallbackSnapshots, warning);
+      this.renderSnapshot(fallbackSnapshots, warning);
     }
   }
 }
@@ -1021,6 +1063,7 @@ export class TaskBoardView implements vscode.WebviewViewProvider {
         case 'stop': await this.board.stop(requiredId()); break;
         case 'restart': await this.board.restart(requiredId()); break;
         case 'refresh': await this.board.refresh(); break;
+        case 'ready': if (this.pending) this.render(this.pending, this.pendingWarning); break;
         case 'edit': await this.board.openTasksJson(optionalId()); break;
         case 'create': await this.board.createTask(); break;
         default: throw new Error('The sidebar sent an unsupported action.');
@@ -1406,6 +1449,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       if (message.warning) renderWarning(message.warning);
       else clearWarning();
     });
+    // A webview can finish loading after the provider first posts its cached
+    // snapshots. Explicit readiness prevents losing the initial message.
+    vscode.postMessage({ command: 'ready' });
     function clearWarning() {
       const retryWasFocused = document.activeElement?.id === 'discoveryRetry';
       warningRegion?.replaceChildren();
