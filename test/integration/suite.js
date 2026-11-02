@@ -86,7 +86,16 @@ function createEmbeddedWebviewHarness(html) {
       if (selector === 'button') return new FakeElement('discoveryRetry');
       return null;
     }
-    querySelectorAll() { return []; }
+    querySelectorAll(selector) {
+      if (this.id !== 'tagFilter') return [];
+      if (this.tagMarkup !== this.innerHTML) {
+        this.tagMarkup = this.innerHTML;
+        this.tagInputs = Array.from(this.innerHTML.matchAll(/<input type="checkbox" value="([^"]*)">/g), match => ({
+          value: match[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"'), checked: false
+        }));
+      }
+      return selector === 'input:checked' ? this.tagInputs.filter(input => input.checked) : this.tagInputs;
+    }
     contains() { return false; }
     focus() {}
   }
@@ -119,13 +128,22 @@ function createEmbeddedWebviewHarness(html) {
   return {
     list: element('list'),
     tagFilter: element('tagFilter'),
+    search: element('search'),
+    regexToggle: element('regexToggle'),
+    searchError: element('searchError'),
+    sort: element('sort'),
+    setSort(value) { const sort = element('sort'); sort.value = value; sort.listeners.get('change')?.(); },
     warningRegion: element('warning'),
+    setSearch(value) { const search = element('search'); search.value = value; search.listeners.get('input')?.(); },
+    toggleRegex() { element('regexToggle').listeners.get('click')?.(); },
     postedMessages,
     selectTag(value) {
       const select = element('tagFilter');
-      select.value = value;
+      const values = Array.isArray(value) ? value : [value];
+      select.querySelectorAll('input').forEach(input => { input.checked = values.includes(input.value); });
       select.listeners.get('change')?.();
     },
+    clearTags() { element('clearTags').listeners.get('click')?.(); },
     send(data) {
       const listener = listeners.get('message');
       assert.ok(listener, 'The webview must register a window message listener.');
@@ -154,6 +172,40 @@ async function run() {
   assert.equal(editor.document.uri.fsPath, path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, '.vscode', 'tasks.json'));
 
   const task = await waitForTask(taskLabel);
+
+  // Discovery must populate a provider snapshot even if no WebviewView
+  // has been resolved. Opening it later must replay that cached result.
+  const preloadBoard = new extensionModule.TaskBoard({
+    workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
+  });
+  const preloadView = new extensionModule.TaskBoardView(
+    vscode.workspace.workspaceFolders[0].uri, 'test', 'host', preloadBoard
+  );
+  preloadBoard.attachView(preloadView);
+  let preloadFetches = 0;
+  preloadBoard.fetchTasksWithProviderFallback = async () => {
+    preloadFetches += 1;
+    return { tasks: [task], providerFailed: false };
+  };
+  preloadBoard.loadWorkspaceTaskSpecs = async () => new Map();
+  preloadBoard.getTasksJsonWarning = async () => undefined;
+  try {
+    await preloadBoard.refresh();
+    assert.equal(preloadFetches, 1, 'Preloading should perform discovery before the view opens.');
+    assert.ok(preloadView.pending?.some(snapshot => snapshot.name === taskLabel));
+    const replayedMessages = [];
+    preloadView.resolveWebviewView({ webview: {
+      options: {}, html: '',
+      onDidReceiveMessage: () => ({ dispose() {} }),
+      postMessage: message => { replayedMessages.push(message); return Promise.resolve(true); }
+    } });
+    assert.ok(replayedMessages.some(message =>
+      message.command === 'render' && message.snapshots.some(snapshot => snapshot.name === taskLabel)
+    ), 'Opening the view must display the already discovered task.');
+    assert.equal(preloadFetches, 1, 'Opening the view must not repeat provider discovery.');
+  } finally {
+    preloadBoard.dispose();
+  }
 
   // Use the real workspace, document and editor APIs to check card navigation.
   const navigationBoard = new extensionModule.TaskBoard({
@@ -256,6 +308,18 @@ async function run() {
   recordingBoard.reportError = () => assert.fail('Successful sidebar actions must not report an error.');
   const webviewHarness = createWebviewHarness(recordingBoard);
 
+  // Webview messages may be posted before its JavaScript has registered
+  // listeners. A readiness handshake must replay the latest cached snapshot.
+  const early = [{ id: 'preloaded-task', name: 'Preloaded task', source: 'Workspace' }];
+  webviewHarness.provider.render(early);
+  const beforeReady = webviewHarness.postedMessages.length;
+  await webviewHarness.send({ command: 'ready' });
+  assert.equal(webviewHarness.postedMessages.length, beforeReady + 1);
+  assert.deepEqual(webviewHarness.postedMessages.at(-1).snapshots, early);
+  assert.match(webviewHarness.html, /vscode\.postMessage\(\{ command: 'ready' \}\)/);
+  assert.ok(manifest.activationEvents.includes('onStartupFinished'),
+    'Task discovery must activate even if the sidebar stays closed.');
+
   for (const control of [
     'id="refresh"', 'id="create"', 'id="edit"',
     'id="search"', 'id="filter"', 'id="tagFilter"', 'id="sort"'
@@ -270,18 +334,25 @@ async function run() {
   assert.match(webviewHarness.html, /filter\?\.addEventListener\('change'/);
   assert.match(webviewHarness.html, /tagFilter\?\.addEventListener\('change'/);
   assert.match(webviewHarness.html, /sort\?\.addEventListener\('change'/);
+  assert.ok(webviewHarness.html.includes('Sort: custom (drag)'));
+  assert.ok(webviewHarness.html.includes('data-reorder="up"'));
+  assert.ok(webviewHarness.html.includes('data-reorder="down"'));
+  assert.ok(webviewHarness.html.includes("addEventListener('dragstart'"));
+  assert.ok(webviewHarness.html.includes("addEventListener('drop'"));
 
   for (const route of routeCases) {
     await webviewHarness.send({ command: route.command, ...(route.id ? { id: route.id } : {}) });
   }
   assert.deepEqual(boardCalls, routeCases.map(({ method, args }) => ({ method, args })));
 
+  webviewHarness.postedMessages.length = 0;
   const uiSnapshots = [{ id: 'task-1', name: 'Task', source: 'Workspace' }];
   webviewHarness.provider.render(uiSnapshots, 'Provider warning');
   assert.deepEqual(webviewHarness.postedMessages, [{
     command: 'render',
     snapshots: uiSnapshots,
-    warning: 'Provider warning'
+    warning: 'Provider warning',
+    customOrder: []
   }]);
 
   const embeddedWebview = createEmbeddedWebviewHarness(
@@ -318,10 +389,65 @@ async function run() {
   assert.match(renderedTaskHtml, /Validated task/, 'A valid render message should display the task.');
   assert.match(renderedTaskHtml, /test &amp; smoke/, 'Task tags should be rendered as escaped labels.');
   assert.match(renderedTaskHtml, /Untagged task/, 'Tasks without tags remain visible before filtering.');
+  assert.match(embeddedWebview.regexToggle.id, /regexToggle/);
+  assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'false');
+  const messageCountBeforeRegex = embeddedWebview.postedMessages.length;
+  embeddedWebview.setSearch('^Valid');
+  assert.match(embeddedWebview.list.innerHTML, /No matching tasks/, 'Literal search does not interpret anchors.');
+  embeddedWebview.toggleRegex();
+  assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'true');
+  assert.match(embeddedWebview.list.innerHTML, /Validated task/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/);
+  embeddedWebview.setSearch('[');
+  assert.match(embeddedWebview.searchError.textContent, /Invalid regular expression/);
+  assert.equal(embeddedWebview.search.getAttribute('aria-invalid'), 'true');
+  assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Invalid regex preserves the last valid cards.');
+  embeddedWebview.toggleRegex();
+  assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(embeddedWebview.searchError.textContent, '');
+  embeddedWebview.setSearch('');
+  assert.equal(embeddedWebview.postedMessages.length, messageCountBeforeRegex,
+    'Regex changes must not request new task discovery.');
+
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, untaggedTaskSnapshot], customOrder: ['untagged-task', 'validated-task'] });
+  embeddedWebview.setSort('custom');
+  assert.ok(embeddedWebview.list.innerHTML.indexOf('Untagged task') < embeddedWebview.list.innerHTML.indexOf('Validated task'),
+    'Custom sort uses the saved logical task order.');
+  embeddedWebview.setSort('name');
   assert.match(embeddedWebview.tagFilter.innerHTML, /value="test &amp; smoke"/, 'Tag choices should be populated from task snapshots.');
   embeddedWebview.selectTag('test & smoke');
   assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Selecting a tag keeps matching tasks visible.');
   assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/, 'Selecting a tag hides tasks without that tag.');
+  const both = { ...taskSnapshot, id: 'both', name: 'Both tags', tags: ['test & smoke', 'second'] };
+  const extra = { ...both, id: 'extra', name: 'Extra tags', tags: [...both.tags, 'third'] };
+  const second = { ...taskSnapshot, id: 'second', name: 'Second only', tags: ['second'] };
+  const tagSnapshots = [taskSnapshot, untaggedTaskSnapshot, both, extra, second];
+  embeddedWebview.send({ command: 'render', snapshots: tagSnapshots, warning: 'Some task providers could not be scanned.' });
+  embeddedWebview.selectTag(['test & smoke', 'second']);
+  // Combined search and AND tag filtering must not lose selected state.
+  embeddedWebview.toggleRegex();
+  embeddedWebview.setSearch('^(Both|Extra) tags$');
+  assert.match(embeddedWebview.list.innerHTML, /Both tags/);
+  assert.match(embeddedWebview.list.innerHTML, /Extra tags/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Second only/);
+  embeddedWebview.toggleRegex();
+  embeddedWebview.setSearch('');
+  assert.match(embeddedWebview.list.innerHTML, /Both tags/);
+  assert.match(embeddedWebview.list.innerHTML, /Extra tags/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Validated task|Untagged task|Second only/);
+  embeddedWebview.send({ command: 'render', snapshots: tagSnapshots });
+  assert.equal(embeddedWebview.tagFilter.querySelectorAll('input:checked').length, 2, 'Refresh retains selected tags.');
+  embeddedWebview.selectTag(['second']);
+  assert.match(embeddedWebview.list.innerHTML, /Second only/);
+  embeddedWebview.clearTags();
+  assert.match(embeddedWebview.list.innerHTML, /Untagged task/);
+  assert.equal(embeddedWebview.tagFilter.querySelectorAll('input:checked').length, 0);
+  embeddedWebview.selectTag(['test & smoke', 'second']);
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, untaggedTaskSnapshot] });
+  assert.match(embeddedWebview.list.innerHTML, /Validated task/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/);
+  assert.equal(embeddedWebview.tagFilter.querySelectorAll('input:checked').length, 1, 'Only vanished tags are deselected.');
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, untaggedTaskSnapshot], warning: 'Some task providers could not be scanned.' });
   renderedTaskHtml = embeddedWebview.list.innerHTML;
   assert.equal(
     embeddedWebview.warningRegion.children[0]?.dataset.message,

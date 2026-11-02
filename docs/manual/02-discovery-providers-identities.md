@@ -182,11 +182,22 @@ An orphan:
 
 Discovery can run because of:
 
-- extension activation;
+- VS Code startup completion, even when the sidebar is closed;
 - explicit Refresh;
 - workspace-folder changes;
-- saving a path ending in `/.vscode/tasks.json`;
-- the board's periodic publish cycle.
+- saving or externally editing `/.vscode/tasks.json`;
+- changing the external-task-provider setting;
+- task execution and completion events.
+
+Discovery results are kept in the extension host and sent to the view when it opens.
+A ready handshake replays the latest snapshot if the Webview loads after the
+initial publication. The 1-second timer updates elapsed/progress data only;
+it does **not** call providers or restart task discovery. This prevents slow
+providers from being repeatedly superseded by the timer.
+
+Startup/Reload Window timing still depends on the VS Code startup event and
+the workspace/provider response time. Remote-host and cold-start performance
+must be measured in a real Extension Host before promising a fixed SLA.
 
 Each publish receives a revision number. If an older asynchronous discovery finishes after a newer one, the old result is discarded instead of overwriting fresher state.
 
