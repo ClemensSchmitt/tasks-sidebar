@@ -52,6 +52,7 @@ The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enable
 - Optional `.*` toggle inside search: JavaScript regular expressions (case-insensitive); invalid patterns show inline feedback without replacing the previous results
 - Deterministic filters for running, failed, completed, unknown/stale and external tasks
 - Deterministic sorting by name, status, elapsed time or folder
+- Custom drag-and-drop ordering of task cards, saved per workspace; keyboard Move up/Move down actions are available
 - Edit `tasks.json`, or create a shell task through the board
 - Version, host and provider labels are visible in the sidebar
 - English-only UI with keyboard focus, screen-reader labels and reduced-motion support
