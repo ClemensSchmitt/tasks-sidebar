@@ -250,6 +250,9 @@ export class TaskBoard {
   }
 
   private tickElapsed(): void {
+    // Reconcile the inexpensive execution registry every second without
+    // re-running provider discovery; lost end events can then become stale.
+    if (!this.disposed && this.running.size) this.reconcileRunningExecutions();
     if (this.disposed || !this.view || !this.lastPublishedSnapshots.some(snapshot => snapshot.isRunning)) return;
     const delta = Math.max(0, monotonicNow() - this.lastPublishedAtMonotonic);
     const updated = this.lastPublishedSnapshots.map(snapshot => {
@@ -1469,9 +1472,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       search?.setAttribute('aria-invalid', message ? 'true' : 'false');
     }
     function compileViewRegex(value) {
-      if (!regexEnabled || !value.trim()) return undefined;
-      if (value.trim().length > 256) throw new Error('Regular expression is too long (maximum 256 characters).');
-      return new RegExp(value.trim(), 'i');
+      if (!regexEnabled || !value.length) return undefined;
+      if (value.length > 256) throw new Error('Regular expression is too long (maximum 256 characters).');
+      return new RegExp(value, 'i');
     }
     search?.addEventListener('input', () => { query = search.value; persistSearch(); render(allTasks); });
     regexToggle?.addEventListener('click', () => {
