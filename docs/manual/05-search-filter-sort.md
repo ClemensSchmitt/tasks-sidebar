@@ -62,9 +62,27 @@ This filter does not itself enable external-provider discovery. If `tasksSidebar
 
 ### Tags
 
-The tag dropdown is independent of the status filter and can be combined with search, status filtering and sorting. It lists the distinct tags present on visible task snapshots. Selecting a tag matches tasks case-insensitively. Tags also appear as badges on their task cards.
+Open **Tags (all required)** and check one or more tags. Each checkbox can be toggled by mouse or with Space when focused. A task must contain **every** selected tag (AND), matched case-insensitively. Selecting `tag1` and `tag2` shows tasks with both, including tasks with additional tags; tasks with just one or no tags are excluded. With no tags selected, all tasks are eligible. Use **Clear tags** to remove the tag restriction.
 
-The list is refreshed with task discovery. If the selected tag is removed from every task, the tag filter resets to **All tags**.
+The tag filter is independent of the status filter and combines with search and sorting. It lists distinct tags from all discovered task snapshots, regardless of the current search/status/tag filters. Tags also appear as badges on their task cards.
+
+The list is refreshed with task discovery. Selections survive task refreshes while those tags remain available. A tag removed from every task is deselected; other selections remain. If all selected tags disappear, there is no tag restriction. Filter selections reset when the webview is recreated.
+
+### Regular expression search
+
+The `.*` button inside the search field enables/disables regex interpretation.
+With the button off (default), search is a case-insensitive literal substring.
+With it on, the query is a JavaScript regular expression matched case-insensitively
+against each task name, provider, group, folder, or tag independently (for
+example `^(build|test)`, `lint|format`). The active button remains visibly
+selected; the mode and query are restored when the webview is recreated.
+
+Invalid expressions display an inline, screen-reader-accessible message;
+the last valid cards remain visible until the expression is fixed or regex
+is switched off. Regexes are limited to 256 characters and each searchable
+field is examined up to its first 2048 characters to reduce search costs.
+Complex expressions may still be slow; avoid nested, unbounded repetitions.
+Regex mode combines with existing status/tag filters and sorting.
 
 ## Sorting
 
@@ -93,6 +111,23 @@ Idle/completed tasks commonly have zero current elapsed time, so ties then fall 
 ### Sort: folder
 
 Workspace-folder name sorts ascending. Tasks without a folder use an empty folder value for comparison, followed by normal tie-breakers.
+
+### Sort: custom (drag)
+
+Choose **Sort: custom (drag)** or drag a visible task card to a new position.
+The task card also provides **Move up** and **Move down** keyboard buttons.
+Dragging automatically enables custom sorting. The order is saved in VS Code
+workspace state rather than changing `tasks.json`.
+
+Reordering within a filtered view changes only the positions of visible
+logical tasks. Hidden tasks keep their relative slots, so clearing the filter
+restores them in those positions. Parallel executions of the same logical
+task use its stable ID and move together. New tasks with no saved ID appear
+after previously ordered tasks. Removed task IDs remain in the saved order
+in case the tasks later return.
+
+Selecting name/status/elapsed/folder does not delete the custom order;
+choose **Sort: custom (drag)** again to restore it.
 
 ## Deterministic tie handling
 

@@ -321,7 +321,7 @@ Add an optional string array to a workspace task definition:
 }
 ```
 
-Tags are trimmed, duplicate values are ignored case-insensitively, and matching is case-insensitive. A task can have multiple tags. The board shows tag badges, offers a separate tag filter, and includes tags in search. The tag filter can be combined with the existing status filter.
+Tags are trimmed, duplicate values are ignored case-insensitively, and matching is case-insensitive. A task can have multiple tags. The board shows tag badges, offers a separate tag filter, and includes tags in search. Add or remove strings in the `tags` array and save `tasks.json` to change the assignment; the array is read again after reload. In **Tags (all required)**, select multiple tags to show only tasks containing every selected tag (AND). Tasks may contain additional tags. **Clear tags** removes the tag restriction. The tag filter can be combined with the existing status filter.
 
 The `tags` property is Tasks Sidebar metadata read directly from `.vscode/tasks.json`; it does not change task execution. VS Code's built-in task JSON schema does not currently include this custom property and may mark it as unknown in the editor. Tasks Sidebar ignores that one schema diagnostic in its own task-file warning so the tag feature does not report its own metadata as a task-file error.
 

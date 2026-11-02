@@ -28,7 +28,8 @@ Add a task to `.vscode/tasks.json` in your workspace:
 }
 ```
 
-Open the **Tasks** activity-bar view. Select the play button on the task card to run it and the stop button to request a stop. If the task list is not current, run **Tasks: Refresh** from the Command Palette. VS Code's normal task configuration rules still apply; see the [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks).
+Task discovery starts after VS Code startup, even if the sidebar stays closed.
+Opening the **Tasks** activity-bar view shows already discovered tasks without requiring an initial manual Refresh. Select the play button on the task card to run it and the stop button to request a stop. If the task list is not current, run **Tasks: Refresh** from the Command Palette. VS Code's normal task configuration rules still apply; see the [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks).
 
 ## Commands and configuration
 
@@ -46,9 +47,12 @@ The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enable
 - Run, stop and safely restart individual task executions
 - Smooth runtime progress with a plan based on the latest successful run
 - Running, stopping, waiting-for-end, failed, cancelled, unknown and stale states
-- Search by task name, provider, group or workspace folder
+- Search by task name, provider, group, workspace folder or tags
+- Assign multiple tags in `tasks.json` (for example, `"tags": ["tag1", "tag2"]`) and filter by all selected tags (AND)
+- Optional `.*` toggle inside search: JavaScript regular expressions (case-insensitive); invalid patterns show inline feedback without replacing the previous results
 - Deterministic filters for running, failed, completed, unknown/stale and external tasks
 - Deterministic sorting by name, status, elapsed time or folder
+- Custom drag-and-drop ordering of task cards, saved per workspace; keyboard Move up/Move down actions are available
 - Edit `tasks.json`, or create a shell task through the board
 - Version, host and provider labels are visible in the sidebar
 - English-only UI with keyboard focus, screen-reader labels and reduced-motion support

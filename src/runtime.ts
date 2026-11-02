@@ -209,6 +209,37 @@ export function mergeProgressElapsed(previousElapsedMs: number, backendElapsedMs
   return Math.max(0, previousElapsedMs, backendElapsedMs, projectedElapsedMs);
 }
 
+/** Shared regex validation contract, also mirrored in the isolated webview. */
+export function compileTaskSearchRegex(query: string): RegExp {
+  const expression = query;
+  if (expression.length > 256) throw new Error('Regular expression is too long (maximum 256 characters).');
+  return new RegExp(expression, 'i');
+}
+
+/**
+ * Move one visible logical task among the visible positions in the persisted
+ * workspace order. Non-visible tasks keep their relative positions.
+ */
+export function reorderVisibleTaskIds(
+  order: readonly string[],
+  visibleIds: readonly string[],
+  movedId: string,
+  targetId: string,
+  after = false
+): string[] {
+  const uniqueOrder = [...new Set(order.filter(id => typeof id === 'string' && id.length > 0))];
+  const known = new Set(uniqueOrder);
+  const visible = [...new Set(visibleIds)].filter(id => known.has(id));
+  if (!visible.includes(movedId) || !visible.includes(targetId) || movedId === targetId) {
+    return uniqueOrder;
+  }
+  const nextVisible = visible.filter(id => id !== movedId);
+  nextVisible.splice(nextVisible.indexOf(targetId) + (after ? 1 : 0), 0, movedId);
+  const visibleSet = new Set(visible);
+  let cursor = 0;
+  return uniqueOrder.map(id => visibleSet.has(id) ? nextVisible[cursor++] : id);
+}
+
 /**
  * Keeps the webview's query/filter/sort semantics deterministic and testable.
  * The webview mirrors this small function because it runs in an isolated DOM.
@@ -218,10 +249,15 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
   query = '',
   filter: TaskBoardFilter = 'all',
   sort: TaskBoardSort = 'name',
-  tagFilter = ''
+  tagFilter: string | readonly string[] = [],
+  regexEnabled = false
 ): T[] {
   const needle = query.trim().toLocaleLowerCase();
-  const selectedTag = tagFilter.trim().toLocaleLowerCase();
+  const pattern = regexEnabled && query.trim()
+    ? compileTaskSearchRegex(query)
+    : undefined;
+  const selectedTags = (typeof tagFilter === 'string' ? [tagFilter] : tagFilter)
+    .map(tag => tag.trim().toLocaleLowerCase()).filter(Boolean);
   const matchesFilter = (task: T): boolean => {
     if (filter === 'running') return task.isRunning;
     if (filter === 'failed') return task.lastOutcome === 'failed';
@@ -231,15 +267,14 @@ export function filterAndSortTaskSnapshots<T extends TaskBoardViewItem>(
     return true;
   };
   const matchesTag = (task: T): boolean => {
-    if (!selectedTag) return true;
-    return (task.tags ?? []).some(tag => tag.trim().toLocaleLowerCase() === selectedTag);
+    return selectedTags.every(selectedTag =>
+      (task.tags ?? []).some(tag => tag.trim().toLocaleLowerCase() === selectedTag));
   };
   const matchesQuery = (task: T): boolean => {
     if (!needle) return true;
-    return [task.name, task.source, task.group, task.workspaceFolderName ?? '', ...(task.tags ?? [])]
-      .join(' ')
-      .toLocaleLowerCase()
-      .includes(needle);
+    const fields = [task.name, task.source, task.group, task.workspaceFolderName ?? '', ...(task.tags ?? [])];
+    if (pattern) return fields.some(field => pattern.test(String(field).slice(0, 2048)));
+    return fields.join(' ').toLocaleLowerCase().includes(needle);
   };
   const compareText = (left: string, right: string): number => left.localeCompare(right) || 0;
   const statusRank = (task: T): number => task.isRunning ? 0 : task.lastOutcome === 'failed' ? 1 : task.lastOutcome === 'unknown' || task.lastOutcome === 'stale' ? 2 : task.lastOutcome === 'success' ? 3 : 4;
