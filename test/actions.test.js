@@ -15,6 +15,7 @@ function harness() {
   class FileSystemError extends Error { constructor(code) { super(code); this.code = code; } }
   const api = {
     FileSystemError,
+    TaskScope: { Global: 1, Workspace: 2 },
     Range: class { constructor(start, end) { this.start = start; this.end = end; } },
     TextEditorRevealType: { InCenter: 1 },
     Uri: { joinPath: (uri, ...parts) => uri.toString() + '/' + parts.join('/') },
