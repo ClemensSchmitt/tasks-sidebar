@@ -752,7 +752,7 @@ export class TaskBoard {
   }
 
   private isActiveInCurrentWorkspace(active: ActiveTask, includeExternalTasks: boolean): boolean {
-    if (active.workspaceScoped) return Boolean(vscode.workspace.workspaceFile);
+    if (active.workspaceScoped) return Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
     return isWorkspaceFolderVisible(
       active.workspaceFolderUri,
       (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString()),
@@ -1122,7 +1122,7 @@ export class TaskBoard {
       const currentFolders = new Set((vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString()));
       const fallbackSnapshots = this.lastGoodSnapshots.filter(snapshot => {
         if (!includeExternalTasks && snapshot.source !== 'Workspace') return false;
-        if (snapshot.workspaceScoped) return Boolean(vscode.workspace.workspaceFile);
+        if (snapshot.workspaceScoped) return Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
         return isWorkspaceFolderVisible(snapshot.workspaceFolderUri, currentFolders, includeExternalTasks);
       });
       this.renderSnapshot(fallbackSnapshots, warning);
