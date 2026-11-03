@@ -9,7 +9,7 @@ The extension uses `vscode.tasks.fetchTasks()`. The returned VS Code `Task` obje
 By default, Tasks Sidebar keeps only tasks that:
 
 - have source `Workspace`;
-- are scoped to an actual workspace folder;
+- are scoped to an actual workspace folder **or** to the active `.code-workspace` file;
 - have a non-empty name.
 
 This makes `.vscode/tasks.json` workspace tasks the default board content.
@@ -194,6 +194,19 @@ A ready handshake replays the latest snapshot if the Webview loads after the
 initial publication. The 1-second timer updates elapsed/progress data only;
 it does **not** call providers or restart task discovery. This prevents slow
 providers from being repeatedly superseded by the timer.
+
+**Multi-root startup recovery:** VS Code can temporarily return tasks from
+only some workspace folders on startup. The sidebar compares fetched tasks
+against configured built-in `shell` and `process` task labels in each
+root's `.vscode/tasks.json`. If a root's configured tasks are not yet
+available, the board reports which folders are pending, preserves last-known
+compatible task cards provisionally, and automatically retries using a
+backoff from 1.5 seconds up to 60 seconds. After a complete scan, a
+low-frequency 60-second refresh continues to pick up provider updates.
+Empty task files do not trigger the retry backoff. The canonical VS Code
+task registry remains authoritative for execution: cached cards never
+execute stale commands directly, and a renamed/deleted task must be
+resolved again before launch.
 
 Startup/Reload Window timing still depends on the VS Code startup event and
 the workspace/provider response time. Remote-host and cold-start performance
