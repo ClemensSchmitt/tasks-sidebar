@@ -510,3 +510,56 @@ test('custom order repositions visible tasks without changing hidden slots', () 
   assert.deepEqual(reorderVisibleTaskIds(['a', 'b'], ['a'], 'a', 'b'), ['a', 'b']);
   assert.deepEqual(reorderVisibleTaskIds(['a', 'a', 'b'], ['a', 'b'], 'b', 'a'), ['b', 'a']);
 });
+
+test('missing workspace task folders detects an initially partial multi-root discovery', () => {
+  const { missingWorkspaceTaskFolders } = require('../out/runtime.js');
+  const roots = new Map([
+    ['file:///workspace', ['Start']],
+    ['file:///repo-a', ['Build', 'Test']],
+    ['file:///repo-b', ['Build']],
+    ['file:///repo-c', ['Deploy']],
+    ['file:///empty', []]
+  ]);
+  const discovered = [
+    { workspaceFolderUri: 'file:///workspace', source: 'Workspace', name: 'Start' },
+    { workspaceFolderUri: 'file:///repo-a', source: 'Workspace', name: 'Build' },
+    { workspaceFolderUri: 'file:///repo-a', source: 'npm', name: 'Test' },
+    { workspaceFolderUri: 'file:///other', source: 'Workspace', name: 'Deploy' }
+  ];
+  assert.deepEqual(missingWorkspaceTaskFolders(roots, discovered),
+    ['file:///repo-a', 'file:///repo-b', 'file:///repo-c']);
+  const complete = [
+    ...discovered,
+    { workspaceFolderUri: 'file:///repo-a', source: 'Workspace', name: 'Test' },
+    { workspaceFolderUri: 'file:///repo-b', source: 'Workspace', name: 'Build' },
+    { workspaceFolderUri: 'file:///repo-c', source: 'Workspace', name: 'Deploy' }
+  ];
+  assert.deepEqual(missingWorkspaceTaskFolders(roots, complete), []);
+  assert.deepEqual(missingWorkspaceTaskFolders(new Map([['file:///empty', []]]), []), []);
+  assert.deepEqual(missingWorkspaceTaskFolders(new Map([['file:///repo-a', ['Build']]]),
+    complete.filter(task => task.workspaceFolderUri !== 'file:///repo-a')), ['file:///repo-a']);
+});
+
+test('missing roots are compared by full URI and task label, never deduplicated by name', () => {
+  const { missingWorkspaceTaskFolders } = require('../out/runtime.js');
+  const configured = new Map([
+    ['file:///repo-a', ['Build']], ['file:///repo-b', ['Build']], ['vscode-remote://ssh/repo-c', ['Build']]
+  ]);
+  assert.deepEqual(missingWorkspaceTaskFolders(configured, [
+    { source: 'Workspace', workspaceFolderUri: 'file:///repo-a', name: 'Build' },
+    { source: 'Workspace', workspaceFolderUri: 'file:///repo-b', name: 'Build' }
+  ]), ['vscode-remote://ssh/repo-c']);
+});
+
+test('removed workspace roots do not leave false missing-folder diagnostics', () => {
+  const { missingWorkspaceTaskFolders } = require('../out/runtime.js');
+  const snapshots = [
+    { source: 'Workspace', name: 'Build', workspaceFolderUri: 'file:///repo-a' },
+    { source: 'Workspace', name: 'Test', workspaceFolderUri: 'file:///repo-b' }
+  ];
+  const initial = new Map([['file:///repo-a', ['Build']], ['file:///repo-b', ['Test']]]);
+  assert.deepEqual(missingWorkspaceTaskFolders(initial, snapshots), []);
+  const afterRemoval = new Map([['file:///repo-a', ['Build']]]);
+  assert.deepEqual(missingWorkspaceTaskFolders(afterRemoval, [snapshots[0]]), []);
+  assert.deepEqual(missingWorkspaceTaskFolders(new Map(), []), []);
+});

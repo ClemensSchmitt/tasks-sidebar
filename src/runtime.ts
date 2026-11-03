@@ -362,6 +362,37 @@ export function observationKey(logicalId: string, workspaceFolderUri?: string): 
   return (workspaceFolderUri ?? 'global') + ':' + logicalId;
 }
 
+/**
+ * Checks how many configured built-in workspace tasks are still missing from
+ * VS Code's fetched task registry. Startup discovery can return a partial list
+ * while additional multi-root task folders initialize.
+ *
+ * Only explicitly configured, built-in labels are used as completeness hints:
+ * custom task-provider types need not be resolvable at every instant.
+ */
+export function missingWorkspaceTaskFolders(
+  expectedLabelsByFolder: ReadonlyMap<string, readonly string[]>,
+  discovered: readonly { workspaceFolderUri?: string; name: string; source: string }[]
+): string[] {
+  const known = new Map<string, Set<string>>();
+  for (const task of discovered) {
+    if (task.source !== 'Workspace' || !task.workspaceFolderUri) continue;
+    let labels = known.get(task.workspaceFolderUri);
+    if (!labels) {
+      labels = new Set<string>();
+      known.set(task.workspaceFolderUri, labels);
+    }
+    labels.add(task.name);
+  }
+  const missing: string[] = [];
+  for (const [folderUri, configuredLabels] of expectedLabelsByFolder) {
+    if (configuredLabels.length && configuredLabels.some(label => !known.get(folderUri)?.has(label))) {
+      missing.push(folderUri);
+    }
+  }
+  return missing;
+}
+
 export function isWorkspaceFolderVisible(
   workspaceFolderUri: string | undefined,
   currentWorkspaceFolderUris: Iterable<string>,

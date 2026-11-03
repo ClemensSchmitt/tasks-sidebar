@@ -207,6 +207,69 @@ async function run() {
     preloadBoard.dispose();
   }
 
+  // Regression: initial task-provider scan can expose only one of several
+  // configured tasks. The board must retry and must not lose last-known tasks
+  // when a later provider scan is temporarily partial.
+  const recoveryBoard = new extensionModule.TaskBoard({
+    workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
+  });
+  const recoveryView = new extensionModule.TaskBoardView(
+    vscode.workspace.workspaceFolders[0].uri, 'test', 'host', recoveryBoard
+  );
+  recoveryBoard.attachView(recoveryView);
+  const folder = vscode.workspace.workspaceFolders[0];
+  const laterTask = new vscode.Task(
+    { type: 'shell', task: 'recovery' }, folder, 'Later workspace task', 'Workspace',
+    new vscode.ShellExecution('echo ready')
+  );
+  const workspaceLevelTask = new vscode.Task(
+    { type: 'shell', task: 'workspace-scope' }, vscode.TaskScope.Workspace,
+    'Workspace-level task', 'Workspace', new vscode.ShellExecution('echo workspace')
+  );
+  let recoveryScans = 0;
+  recoveryBoard.fetchTasksWithProviderFallback = async () => ({
+    tasks: ++recoveryScans === 1 || recoveryScans === 3
+      ? [task] : [task, laterTask, workspaceLevelTask],
+    providerFailed: false
+  });
+  recoveryBoard.loadWorkspaceTaskSpecs = async () => new Map([
+    [folder.uri.toString(), {
+      dependencies: {}, tags: {}, configuredBuiltInLabels: [taskLabel, 'Later workspace task']
+    }]
+  ]);
+  recoveryBoard.getTasksJsonWarning = async () => undefined;
+  try {
+    await recoveryBoard.refresh();
+    assert.equal(recoveryBoard.incompleteDiscoveryAttempts, 1, 'Incomplete first scan must trigger a retry.');
+    assert.ok(recoveryBoard.discoveryTimer, 'Retry must be scheduled without the webview being opened.');
+    assert.match(recoveryView.pendingWarning, /Waiting for tasks from/);
+    await recoveryBoard.refresh();
+    assert.equal(recoveryBoard.incompleteDiscoveryAttempts, 0, 'Complete recovery resets backoff.');
+    assert.equal(recoveryView.pending.filter(snapshot => snapshot.name === 'Later workspace task').length, 1);
+    assert.equal(recoveryView.pending.filter(snapshot => snapshot.name === 'Workspace-level task').length, 1,
+      'Workspace-scoped tasks from .code-workspace must be accepted without the external-provider toggle.');
+    const ids = new Set(recoveryView.pending.map(snapshot => snapshot.id));
+    assert.equal(ids.size, recoveryView.pending.length, 'Distinct task identities must be preserved.');
+    await recoveryBoard.refresh();
+    assert.match(recoveryView.pendingWarning, /Waiting for tasks from/);
+    assert.ok(recoveryView.pending.some(snapshot => snapshot.name === 'Later workspace task'),
+      'Temporarily missing task must be kept from the previous complete snapshot.');
+    await recoveryBoard.refresh();
+    assert.equal(recoveryView.pendingWarning, undefined, 'Warning clears when all folders recover.');
+    assert.equal(recoveryBoard.incompleteDiscoveryAttempts, 0);
+    recoveryBoard.fetchTasksWithProviderFallback = async () => { throw new Error('provider temporarily unavailable'); };
+    recoveryBoard.getDiscoveryWarning = async () => 'Temporary provider outage';
+    await recoveryBoard.refresh();
+    assert.match(recoveryView.pendingWarning, /Temporary provider outage/);
+    assert.ok(recoveryView.pending.some(snapshot => snapshot.name === 'Workspace-level task'),
+      'A transient provider failure must preserve cached workspace-scoped tasks.');
+    assert.ok(recoveryView.pending.some(snapshot => snapshot.name === 'Later workspace task'),
+      'A transient provider failure must preserve cached folder-scoped tasks.');
+  } finally {
+    recoveryBoard.dispose();
+    assert.equal(recoveryBoard.disposed, true, 'Dispose must stop future discovery.');
+  }
+
   // Use the real workspace, document and editor APIs to check card navigation.
   const navigationBoard = new extensionModule.TaskBoard({
     workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
