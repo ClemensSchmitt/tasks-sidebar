@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, observationKey, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
+import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, missingWorkspaceTaskFolders, observationKey, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
 
 type TaskLifecycle = TaskExecutionLifecycle;
 type TaskHistory = {
@@ -62,6 +62,7 @@ type TaskMetadata = {
 type WorkspaceTaskSpecs = {
   dependencies: Record<string, TaskDependencySpec>;
   tags: Record<string, string[]>;
+  configuredBuiltInLabels: string[];
 };
 
 type TaskSnapshot = {
@@ -115,6 +116,8 @@ const END_EVENT_GRACE_MS = 1000;
 const END_EVENT_TIMEOUT_MS = 10000;
 const STOP_TIMEOUT_MS = 10000;
 const MIN_VSCODE_VERSION = '1.85.0';
+const NORMAL_DISCOVERY_POLL_MS = 60000;
+const PARTIAL_DISCOVERY_BACKOFF_MS = [1500, 4000, 10000, 30000, 60000];
 
 export function activate(context: vscode.ExtensionContext): void {
   if (!isSupportedVSCodeVersion(vscode.version, MIN_VSCODE_VERSION)) {
@@ -163,6 +166,8 @@ export function deactivate(): void {}
 export class TaskBoard {
   private view?: TaskBoardView;
   private timer?: NodeJS.Timeout;
+  private discoveryTimer?: NodeJS.Timeout;
+  private incompleteDiscoveryAttempts = 0;
   private disposed = false;
   private readonly running = new Map<string, ActiveTask>();
   private readonly executionIds = new WeakMap<vscode.TaskExecution, string>();
@@ -240,6 +245,21 @@ export class TaskBoard {
 
   async refresh(): Promise<void> {
     await this.publish();
+  }
+
+  // Provider discovery is not always complete when onStartupFinished fires.
+  // A single retry timer is independent from the one-second elapsed-time tick.
+  private scheduleNextDiscovery(incomplete: boolean): void {
+    if (this.discoveryTimer) clearTimeout(this.discoveryTimer);
+    if (this.disposed) return;
+    this.incompleteDiscoveryAttempts = incomplete ? this.incompleteDiscoveryAttempts + 1 : 0;
+    const delay = incomplete
+      ? PARTIAL_DISCOVERY_BACKOFF_MS[Math.min(this.incompleteDiscoveryAttempts - 1, PARTIAL_DISCOVERY_BACKOFF_MS.length - 1)]
+      : NORMAL_DISCOVERY_POLL_MS;
+    this.discoveryTimer = setTimeout(() => {
+      this.discoveryTimer = undefined;
+      void this.refresh();
+    }, delay);
   }
 
   private renderSnapshot(snapshots: TaskSnapshot[], warning?: string): void {
@@ -516,6 +536,7 @@ export class TaskBoard {
     this.disposed = true;
     this.persistActiveObservations();
     if (this.timer) clearInterval(this.timer);
+    if (this.discoveryTimer) clearTimeout(this.discoveryTimer);
     for (const active of this.running.values()) {
       if (active.finishTimer) clearTimeout(active.finishTimer);
       if (active.staleTimer) clearTimeout(active.staleTimer);
@@ -672,9 +693,18 @@ export class TaskBoard {
       try {
         const contents = await vscode.workspace.fs.readFile(uri);
         const parsed = parseJsonc(Buffer.from(contents).toString('utf8')) as unknown;
+        const entries = parsed && typeof parsed === 'object' && 'tasks' in parsed &&
+          Array.isArray(parsed.tasks) ? parsed.tasks : [];
+        const configuredBuiltInLabels = entries
+          .filter((entry: unknown): entry is Record<string, unknown> =>
+            Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+          .filter(entry => entry.type === undefined || entry.type === 'shell' || entry.type === 'process')
+          .map(entry => entry.label)
+          .filter((label): label is string => typeof label === 'string' && label.trim().length > 0);
         specs.set(folder.uri.toString(), {
           dependencies: parseTaskDependencySpecs(parsed),
-          tags: parseTaskTags(parsed)
+          tags: parseTaskTags(parsed),
+          configuredBuiltInLabels
         });
       } catch {
         // Discovery and JSON diagnostics are handled independently; one bad root must not hide others.
@@ -920,8 +950,18 @@ export class TaskBoard {
       const currentFolderUris = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString());
       const visibleTasks = tasks
         .filter(task => includeExternalTasks || isWorkspaceJsonTask(task))
-        .filter(task => isWorkspaceFolderVisible(taskWorkspaceFolder(task).workspaceFolderUri, currentFolderUris, includeExternalTasks))
+        .filter(task => task.scope === vscode.TaskScope.Workspace ||
+          isWorkspaceFolderVisible(taskWorkspaceFolder(task).workspaceFolderUri, currentFolderUris, includeExternalTasks))
         .filter(task => task.name.trim().length > 0);
+      const expectedLabels = new Map(Array.from(workspaceTaskSpecs, ([uri, specs]) => [uri, specs.configuredBuiltInLabels]));
+      const missingTaskFolderUris = missingWorkspaceTaskFolders(
+        expectedLabels,
+        visibleTasks.map(task => ({
+          workspaceFolderUri: taskWorkspaceFolder(task).workspaceFolderUri,
+          name: task.name,
+          source: task.source
+        }))
+      );
       const metadataItems: Array<{ task: vscode.Task; metadata: TaskMetadata }> = [];
       const snapshots: TaskSnapshot[] = [];
       const representedExecutionIds = new Set<string>();
@@ -976,6 +1016,26 @@ export class TaskBoard {
           }, active, this.history, true, dependencyIds.has(active.logicalId)));
         }
       }
+      // Do not erase valid tasks from other roots on a transient partial
+      // provider result (e.g. early VS Code multi-root initialization).
+      if (missingTaskFolderUris.length) {
+        const missing = new Set(missingTaskFolderUris);
+        const knownIds = new Set(snapshots.map(snapshot => snapshot.id));
+        for (const cached of this.lastGoodSnapshots) {
+          if (!cached.workspaceFolderUri || !missing.has(cached.workspaceFolderUri) ||
+              !expectedLabels.get(cached.workspaceFolderUri)?.includes(cached.name) ||
+              knownIds.has(cached.id)) continue;
+          knownIds.add(cached.id);
+          snapshots.push({
+            ...cached, isRunning: false, elapsedMs: 0, progress: 0,
+            progressState: calculateProgressState({
+              isRunning: false, elapsedMs: 0, plannedMs: cached.plannedMs, lastOutcome: cached.lastOutcome
+            }),
+            isStopping: false, overtimeMs: undefined, executionId: undefined,
+            lifecycle: 'idle', orphaned: false
+          });
+        }
+      }
       applyDependencyState(snapshots);
       snapshots.sort((a, b) => Number(b.isRunning) - Number(a.isRunning) || a.name.localeCompare(b.name) || a.executionId?.localeCompare(b.executionId ?? '') || 0);
       let warning: string | undefined;
@@ -987,6 +1047,13 @@ export class TaskBoard {
         warning = `[${hostLabel()}] Could not check tasks.json. Check the workspace file permissions.`;
       }
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
+      if (missingTaskFolderUris.length) {
+        const names = (vscode.workspace.workspaceFolders ?? [])
+          .filter(folder => missingTaskFolderUris.includes(folder.uri.toString()))
+          .map(folder => folder.name);
+        warning = `[${hostLabel()}] Waiting for tasks from: ${names.join(', ')}. Retrying automatically.` +
+          (warning ? ' ' + warning : '');
+      }
       this.lastGoodSnapshots = snapshots.map(snapshot => ({ ...snapshot }));
       const cacheSnapshots = snapshots
         .filter(snapshot => !snapshot.orphaned)
@@ -1014,6 +1081,7 @@ export class TaskBoard {
           .catch(error => this.reportError('The last valid task snapshot could not be saved.', error));
       }
       this.renderSnapshot(snapshots, warning);
+      this.scheduleNextDiscovery(missingTaskFolderUris.length > 0);
     } catch (error) {
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       let warning = `[${hostLabel()}] Task discovery failed. Check tasks.json, permissions, or external providers and try again.`;
@@ -1029,13 +1097,15 @@ export class TaskBoard {
         return isWorkspaceFolderVisible(snapshot.workspaceFolderUri, currentFolders, includeExternalTasks);
       });
       this.renderSnapshot(fallbackSnapshots, warning);
+      this.scheduleNextDiscovery(true);
     }
   }
 }
 
 function isWorkspaceJsonTask(task: vscode.Task): boolean {
   if (task.source !== 'Workspace') return false;
-  return typeof task.scope === 'object' && task.scope !== null && 'uri' in task.scope;
+  return task.scope === vscode.TaskScope.Workspace ||
+    (typeof task.scope === 'object' && task.scope !== null && 'uri' in task.scope);
 }
 
 function hostLabel(): string {
