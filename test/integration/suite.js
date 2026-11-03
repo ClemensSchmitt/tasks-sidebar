@@ -257,9 +257,17 @@ async function run() {
     await recoveryBoard.refresh();
     assert.equal(recoveryView.pendingWarning, undefined, 'Warning clears when all folders recover.');
     assert.equal(recoveryBoard.incompleteDiscoveryAttempts, 0);
+    recoveryBoard.fetchTasksWithProviderFallback = async () => { throw new Error('provider temporarily unavailable'); };
+    recoveryBoard.getDiscoveryWarning = async () => 'Temporary provider outage';
+    await recoveryBoard.refresh();
+    assert.match(recoveryView.pendingWarning, /Temporary provider outage/);
+    assert.ok(recoveryView.pending.some(snapshot => snapshot.name === 'Workspace-level task'),
+      'A transient provider failure must preserve cached workspace-scoped tasks.');
+    assert.ok(recoveryView.pending.some(snapshot => snapshot.name === 'Later workspace task'),
+      'A transient provider failure must preserve cached folder-scoped tasks.');
   } finally {
     recoveryBoard.dispose();
-    assert.equal(recoveryBoard.discoveryTimer._destroyed, true, 'Dispose clears a scheduled provider scan.');
+    assert.equal(recoveryBoard.disposed, true, 'Dispose must stop future discovery.');
   }
 
   // Real VS Code multi-root smoke test: the API must expose every folder's
