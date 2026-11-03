@@ -1,0 +1,10 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Repo C integration task",
+      "type": "shell",
+      "command": "echo repo-c"
+    }
+  ]
+}
