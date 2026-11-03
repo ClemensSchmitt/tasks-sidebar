@@ -1,0 +1,34 @@
+{
+  "folders": [
+    {
+      "path": "workspace",
+      "name": "integration-root"
+    },
+    {
+      "path": "workspace/repo-a",
+      "name": "repo-a"
+    },
+    {
+      "path": "workspace/repo-b",
+      "name": "repo-b"
+    },
+    {
+      "path": "workspace/repo-c",
+      "name": "repo-c"
+    },
+    {
+      "path": "workspace/repo-empty",
+      "name": "repo-empty"
+    }
+  ],
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Workspace file integration task",
+        "type": "shell",
+        "command": "echo workspace"
+      }
+    ]
+  }
+}
