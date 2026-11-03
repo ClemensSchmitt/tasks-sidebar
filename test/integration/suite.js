@@ -389,7 +389,10 @@ async function run() {
   ]) assert.ok(webviewHarness.html.includes(control), 'Missing sidebar UI control ' + control + '.');
   assert.match(webviewHarness.html, /<input id="search" class="search" type="text"/);
   assert.match(webviewHarness.html, /\.board-tools \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/);
+  const searchControls = webviewHarness.html.match(/<div class="search-wrap">([^]*?)<\/div>/)[1];
+  assert.deepStrictEqual(searchControls.match(/<(?:input|button)\b[^>]*>/g).map(control => control.match(/\bid="([^"]+)"/)?.[1]), ['search', 'regexToggle']);
   assert.doesNotMatch(webviewHarness.html, /::-webkit-search-cancel-button/);
+  assert.match(webviewHarness.html, /#tagFilter \{[^}]*grid-auto-rows: 1\.5em; max-height: calc\(6em \+ 15px\); overflow-y: auto/);
   assert.doesNotMatch(webviewHarness.html, /resetView|Reset search and filters/);
   for (const action of ['run', 'stop', 'restart', 'edit']) {
     assert.ok(webviewHarness.html.includes('data-action="' + action + '"'), 'Missing task-card action ' + action + '.');
