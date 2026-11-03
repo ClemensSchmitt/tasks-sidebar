@@ -429,6 +429,28 @@ export class TaskBoard {
         return;
       }
       selectedTask = task;
+      if (task.scope === vscode.TaskScope.Workspace) {
+        const workspaceFile = vscode.workspace.workspaceFile;
+        if (!workspaceFile) {
+          void vscode.window.showWarningMessage('There is no workspace configuration file for this task.');
+          return;
+        }
+        try {
+          const document = await vscode.workspace.openTextDocument(workspaceFile);
+          const range = findTaskDefinitionRange(document.getText(), task.name);
+          if (!range) {
+            await vscode.window.showTextDocument(document);
+            void vscode.window.showWarningMessage('The workspace task definition could not be located automatically.');
+            return;
+          }
+          const selection = new vscode.Range(document.positionAt(range.start), document.positionAt(range.end));
+          const editor = await vscode.window.showTextDocument(document, { selection });
+          editor.revealRange(selection, vscode.TextEditorRevealType.InCenter);
+        } catch (error) {
+          this.reportError('The workspace task definition could not be opened.', error);
+        }
+        return;
+      }
       const taskFolder = taskWorkspaceFolder(task);
       if (taskFolder.workspaceFolderUri) {
         folder = vscode.workspace.workspaceFolders?.find(item => item.uri.toString() === taskFolder.workspaceFolderUri);
