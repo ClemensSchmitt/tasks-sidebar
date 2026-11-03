@@ -28,6 +28,7 @@ type ActiveTask = {
   isBackground: boolean;
   workspaceFolderUri?: string;
   workspaceFolderName?: string;
+  workspaceScoped?: boolean;
   dependsOn: string[];
   dependsOrder: DependencyOrder;
   dependencyIds: string[];
@@ -54,6 +55,7 @@ type TaskMetadata = {
   isBackground: boolean;
   workspaceFolderUri?: string;
   workspaceFolderName?: string;
+  workspaceScoped?: boolean;
   dependsOn: string[];
   dependsOrder: DependencyOrder;
   dependencyIds: string[];
@@ -74,6 +76,7 @@ type TaskSnapshot = {
   isBackground: boolean;
   workspaceFolderUri?: string;
   workspaceFolderName?: string;
+  workspaceScoped?: boolean;
   dependsOn: string[];
   dependsOrder: DependencyOrder;
   dependencyIds: string[];
@@ -622,6 +625,7 @@ export class TaskBoard {
       isBackground: metadata.isBackground,
       workspaceFolderUri: metadata.workspaceFolderUri,
       workspaceFolderName: metadata.workspaceFolderName,
+      workspaceScoped: metadata.workspaceScoped,
       dependsOn: metadata.dependsOn,
       dependsOrder: metadata.dependsOrder,
       dependencyIds: metadata.dependencyIds,
@@ -748,6 +752,7 @@ export class TaskBoard {
   }
 
   private isActiveInCurrentWorkspace(active: ActiveTask, includeExternalTasks: boolean): boolean {
+    if (active.workspaceScoped) return Boolean(vscode.workspace.workspaceFile);
     return isWorkspaceFolderVisible(
       active.workspaceFolderUri,
       (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString()),
@@ -1032,6 +1037,7 @@ export class TaskBoard {
             isBackground: active.isBackground,
             workspaceFolderUri: active.workspaceFolderUri,
             workspaceFolderName: active.workspaceFolderName,
+            workspaceScoped: active.workspaceScoped,
             dependsOn: active.dependsOn,
             dependsOrder: active.dependsOrder,
             dependencyIds: active.dependencyIds
@@ -1116,6 +1122,7 @@ export class TaskBoard {
       const currentFolders = new Set((vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString()));
       const fallbackSnapshots = this.lastGoodSnapshots.filter(snapshot => {
         if (!includeExternalTasks && snapshot.source !== 'Workspace') return false;
+        if (snapshot.workspaceScoped) return Boolean(vscode.workspace.workspaceFile);
         return isWorkspaceFolderVisible(snapshot.workspaceFolderUri, currentFolders, includeExternalTasks);
       });
       this.renderSnapshot(fallbackSnapshots, warning);
@@ -1235,6 +1242,7 @@ function toSnapshot(
     isBackground: active?.isBackground ?? metadata.isBackground,
     workspaceFolderUri: active?.workspaceFolderUri ?? metadata.workspaceFolderUri,
     workspaceFolderName: active?.workspaceFolderName ?? metadata.workspaceFolderName,
+    workspaceScoped: active?.workspaceScoped ?? metadata.workspaceScoped,
     dependsOn,
     dependsOrder: metadata.dependsOrder ?? active?.dependsOrder ?? 'parallel',
     dependencyIds: dependencyIdsForSnapshot,
@@ -1274,6 +1282,7 @@ function toMetadata(task: vscode.Task, dependencySpec?: TaskDependencySpec, tags
     isBackground: task.isBackground,
     workspaceFolderUri: folder.workspaceFolderUri,
     workspaceFolderName: folder.workspaceFolderName,
+    workspaceScoped: task.scope === vscode.TaskScope.Workspace,
     dependsOn: dependencySpec?.dependsOn ?? [],
     dependsOrder: dependencySpec?.dependsOrder ?? 'parallel',
     dependencyIds: []
