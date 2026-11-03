@@ -1410,8 +1410,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .view-options #sort { grid-column: 1 / -1; }
     .tag-filter { min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; background: var(--surface-raised); }
     .tag-filter summary { cursor: pointer; overflow-wrap: anywhere; }
-    #tagFilter { display: grid; gap: 5px; grid-auto-rows: 1.5em; max-height: calc(6em + 15px); overflow-y: auto; margin: 7px 0; }
-    #tagFilter label { display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; }
+    #tagFilter { display: grid; gap: 5px; grid-template-columns: minmax(0, 1fr); grid-auto-rows: 1.5em; max-height: calc(6em + 15px); overflow-y: auto; margin: 7px 0; }
+    #tagFilter label { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    #tagFilter label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #tagFilter input { flex: none; }
     .tag-filter summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .task[draggable="true"] { cursor: grab; }
@@ -2020,7 +2021,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       const signature = JSON.stringify(entries);
       if (signature !== tagOptionsSignature) {
         tagFilter.innerHTML = entries.length ? entries
-          .map(([value, label]) => '<label><input type="checkbox" value="' + escapeHtml(value) + '"> ' + escapeHtml(label) + '</label>')
+          .map(([value, label]) => '<label><input type="checkbox" value="' + escapeHtml(value) + '"><span title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</span></label>')
           .join('') : '<span>No tags available</span>';
         tagOptionsSignature = signature;
       }
