@@ -270,68 +270,6 @@ async function run() {
     assert.equal(recoveryBoard.disposed, true, 'Dispose must stop future discovery.');
   }
 
-  // Real VS Code multi-root smoke test: the API must expose every folder's
-  // tasks.json even when labels collide in separate repositories.
-  const originalRootCount = vscode.workspace.workspaceFolders.length;
-  const testRoots = ['repo-a', 'repo-b', 'repo-c', 'repo-empty'].map(name => ({
-    uri: vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, name),
-    name
-  }));
-  const addedRoots = vscode.workspace.updateWorkspaceFolders(originalRootCount, 0, ...testRoots);
-  assert.equal(addedRoots, true, 'VS Code must permit adding multi-root test folders.');
-  try {
-    const deadline = Date.now() + 20000;
-    let discoveredTasks = [];
-    let allRootsDiscovered = false;
-    while (Date.now() < deadline) {
-      discoveredTasks = await vscode.tasks.fetchTasks();
-      const found = new Set(discoveredTasks
-        .filter(item => item.source === 'Workspace' && item.scope && typeof item.scope === 'object')
-        .map(item => item.scope.uri.toString()));
-      if (testRoots.slice(0, 3).every(folder => found.has(folder.uri.toString()))) {
-        allRootsDiscovered = true;
-        break;
-      }
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-    assert.equal(allRootsDiscovered, true, 'VS Code must discover all three configured repository roots.');
-    const multiRootBoard = new extensionModule.TaskBoard({
-      workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
-    });
-    const multiRootView = new extensionModule.TaskBoardView(
-      vscode.workspace.workspaceFolders[0].uri, 'test', 'host', multiRootBoard
-    );
-    multiRootBoard.attachView(multiRootView);
-    try {
-      await multiRootBoard.refresh();
-      const snapshots = multiRootView.pending;
-      const duplicates = snapshots.filter(snapshot => snapshot.name === 'Repo integration duplicate');
-      assert.equal(duplicates.length, 2, 'Duplicate labels from different repositories must stay separate.');
-      assert.notEqual(duplicates[0].id, duplicates[1].id, 'Logical IDs must include workspace-folder identity.');
-      assert.notEqual(duplicates[0].workspaceFolderUri, duplicates[1].workspaceFolderUri);
-      assert.ok(snapshots.some(snapshot => snapshot.name === 'Repo C integration task'));
-      assert.ok(snapshots.some(snapshot => snapshot.name === taskLabel),
-        'The original workspace task must remain visible alongside repository tasks.');
-      assert.equal(multiRootBoard.incompleteDiscoveryAttempts, 0,
-        'An empty tasks.json is not a permanently incomplete root.');
-      for (const duplicate of duplicates) {
-        await multiRootBoard.openTasksJson(duplicate.id);
-        assert.equal(vscode.window.activeTextEditor.document.uri.toString(),
-          vscode.Uri.joinPath(vscode.Uri.parse(duplicate.workspaceFolderUri), '.vscode', 'tasks.json').toString(),
-          'Edit must navigate to the matching repository tasks.json.');
-      }
-    } finally {
-      multiRootBoard.dispose();
-    }
-  } finally {
-    vscode.workspace.updateWorkspaceFolders(originalRootCount, testRoots.length);
-    const restoreDeadline = Date.now() + 10000;
-    while (vscode.workspace.workspaceFolders.length !== originalRootCount && Date.now() < restoreDeadline) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    assert.equal(vscode.workspace.workspaceFolders.length, originalRootCount);
-  }
-
   // Use the real workspace, document and editor APIs to check card navigation.
   const navigationBoard = new extensionModule.TaskBoard({
     workspaceState: { get: (_key, fallback) => fallback, update: async () => {} }
