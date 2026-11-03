@@ -550,3 +550,16 @@ test('missing roots are compared by full URI and task label, never deduplicated 
     { source: 'Workspace', workspaceFolderUri: 'file:///repo-b', name: 'Build' }
   ]), ['vscode-remote://ssh/repo-c']);
 });
+
+test('removed workspace roots do not leave false missing-folder diagnostics', () => {
+  const { missingWorkspaceTaskFolders } = require('../out/runtime.js');
+  const snapshots = [
+    { source: 'Workspace', name: 'Build', workspaceFolderUri: 'file:///repo-a' },
+    { source: 'Workspace', name: 'Test', workspaceFolderUri: 'file:///repo-b' }
+  ];
+  const initial = new Map([['file:///repo-a', ['Build']], ['file:///repo-b', ['Test']]]);
+  assert.deepEqual(missingWorkspaceTaskFolders(initial, snapshots), []);
+  const afterRemoval = new Map([['file:///repo-a', ['Build']]]);
+  assert.deepEqual(missingWorkspaceTaskFolders(afterRemoval, [snapshots[0]]), []);
+  assert.deepEqual(missingWorkspaceTaskFolders(new Map(), []), []);
+});
