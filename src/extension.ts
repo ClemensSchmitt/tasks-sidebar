@@ -1396,9 +1396,8 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .primary:hover { background: color-mix(in srgb, var(--violet) 27%, transparent); }
     .board-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0 0 10px; }
     .search-wrap { position: relative; min-width: 0; display: flex; align-items: center; }
-    .search-wrap .search { width: 100%; padding-right: 67px; }
+    .search-wrap .search { width: 100%; padding-right: 40px; }
     /* Keep Chromium's native clear icon separate from the regex toggle. */
-    .search-wrap .search::-webkit-search-cancel-button { margin-right: 33px; }
     #regexToggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-width: 29px; min-height: 25px; padding: 1px 4px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--ink); font-weight: 700; }
     #regexToggle[aria-pressed="true"] { background: var(--vscode-inputOption-activeBackground, var(--surface-raised)); color: var(--vscode-inputOption-activeForeground, var(--ink)); border-color: var(--vscode-inputOption-activeBorder, var(--focus)); }
     #regexToggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -1411,8 +1410,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .view-options #sort { grid-column: 1 / -1; }
     .tag-filter { min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; background: var(--surface-raised); }
     .tag-filter summary { cursor: pointer; overflow-wrap: anywhere; }
-    #tagFilter { display: grid; gap: 5px; max-height: 180px; overflow-y: auto; margin: 7px 0; }
-    #tagFilter label { display: flex; align-items: center; gap: 4px; overflow-wrap: anywhere; }
+    #tagFilter { display: grid; gap: 5px; grid-template-columns: minmax(0, 1fr); grid-auto-rows: 1.5em; max-height: calc(6em + 15px); overflow-y: auto; margin: 7px 0; }
+    #tagFilter label { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    #tagFilter label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #tagFilter input { flex: none; }
     .tag-filter summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .task[draggable="true"] { cursor: grab; }
@@ -1507,7 +1507,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     <div class="actions" role="group" aria-label="Task actions"><button type="button" id="refresh" title="Refresh tasks" aria-label="Refresh tasks">↻</button><button type="button" id="create" class="primary" title="Create task" aria-label="Create task">＋</button><button type="button" id="edit" class="primary" title="Open tasks.json" aria-label="Open tasks.json">✎</button></div>
   </div>
   <div class="board-tools" role="group" aria-label="Task board controls">
-    <div class="search-wrap"><input id="search" class="search" type="search" placeholder="Search tasks, tags, sources, groups…" aria-label="Search tasks, tags, sources, groups" aria-describedby="searchError"><button id="regexToggle" type="button" aria-label="Use Regular Expression" title="Use Regular Expression" aria-pressed="false">.*</button></div>
+    <div class="search-wrap"><input id="search" class="search" type="text" placeholder="Search tasks, tags, sources, groups…" aria-label="Search tasks, tags, sources, groups" aria-describedby="searchError"><button id="regexToggle" type="button" aria-label="Use Regular Expression" title="Use Regular Expression" aria-pressed="false">.*</button></div>
     <div id="searchError" role="alert" aria-live="polite"></div>
     <div class="view-options">
       <select id="filter" class="view-select" aria-label="Filter tasks"><option value="all">All tasks</option><option value="running">Running</option><option value="failed">Failed</option><option value="completed">Completed</option><option value="unknown">Unknown / stale</option><option value="external">External providers</option></select>
@@ -2021,7 +2021,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       const signature = JSON.stringify(entries);
       if (signature !== tagOptionsSignature) {
         tagFilter.innerHTML = entries.length ? entries
-          .map(([value, label]) => '<label><input type="checkbox" value="' + escapeHtml(value) + '"> ' + escapeHtml(label) + '</label>')
+          .map(([value, label]) => '<label><input type="checkbox" value="' + escapeHtml(value) + '"><span title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</span></label>')
           .join('') : '<span>No tags available</span>';
         tagOptionsSignature = signature;
       }
