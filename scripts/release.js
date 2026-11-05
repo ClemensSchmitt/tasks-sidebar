@@ -187,6 +187,12 @@ function inspectVsix(vsixPath) {
   for (const container of containers) {
     if (container.icon) requiredFiles.add(getExtensionPackagePath(container.icon, 'Activity Bar icon'));
   }
+  if (bundledManifest.dependencies?.['jsonc-parser']) {
+    for (const file of ['package.json', 'LICENSE.md', 'lib/umd/main.js',
+      ...['edit', 'format', 'parser', 'scanner', 'string-intern'].map(name => 'lib/umd/impl/' + name + '.js')]) {
+      requiredFiles.add('extension/node_modules/jsonc-parser/' + file);
+    }
+  }
   const licenseFile = files.find(name => /^extension\/LICENSE(?:\.txt)?$/i.test(name));
   if (!licenseFile) throw new Error('VSIX is missing its license file');
   requiredFiles.add(licenseFile);
@@ -195,7 +201,7 @@ function inspectVsix(vsixPath) {
   if (missing.length) throw new Error('VSIX is missing required package files: ' + missing.join(', '));
 
   const forbiddenPatterns = [
-    /^extension\/(?:\.git(?:\/|$)|\.github(?:\/|$)|\.vscode(?:\/|$)|src(?:\/|$)|test(?:\/|$)|scripts(?:\/|$)|node_modules(?:\/|$))/i,
+    /^extension\/(?:\.git(?:\/|$)|\.github(?:\/|$)|\.vscode(?:\/|$)|src(?:\/|$)|test(?:\/|$)|scripts(?:\/|$))/i,
     /^extension\/(?:CLOUD_PROJECT_HANDOFF\.md|RELEASING\.md|tsconfig\.json|package-lock\.json|\.gitignore)$/i,
     /(?:^|\/)\.env(?:\.[^/]*)?$/i,
     /(?:^|\/)\.npmrc$/i,
@@ -205,6 +211,7 @@ function inspectVsix(vsixPath) {
     /(?:^|\/)[^/]*(?:credential|secret)[^/]*$/i,
     /\.(?:tsbuildinfo|map|log|vsix)$/i,
   ];
+  forbiddenPatterns.push(/^extension\/node_modules\/(?!jsonc-parser\/(?:package\.json$|LICENSE\.md$|lib\/umd\/(?:impl\/)?[^/]+\.js$))/i);
   const forbidden = files.filter(name => forbiddenPatterns.some(pattern => pattern.test(name)));
   if (forbidden.length) throw new Error('VSIX contains forbidden development, local, or credential files: ' + forbidden.join(', '));
 

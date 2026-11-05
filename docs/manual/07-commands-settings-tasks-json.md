@@ -90,9 +90,9 @@ Canceling the picker makes no changes.
 
 A Workspace task card can expose **Edit task definition**.
 
-The extension resolves the task again, determines its workspace-folder URI, then opens that folder's `.vscode/tasks.json`.
+The extension resolves the task again and selects its unique definition in the correct file. Folder tasks open their own `.vscode/tasks.json`; workspace-scoped tasks open the active `.code-workspace` file and select the object in `tasks.tasks`.
 
-The editor is opened at the file level. Tasks Sidebar does not navigate to an exact JSON object/line.
+Navigation preserves the document exactly, including JSONC comments and trailing commas. Same-named tasks in another folder or another configuration section are never selected. Missing/renamed labels, duplicate labels in the same task array and duplicate JSON properties are treated as ambiguous; check the reported file and refresh the board.
 
 ### External task
 
@@ -118,56 +118,29 @@ The operation uses `vscode.workspace.fs` and VS Code URIs, so in a remote worksp
 
 This workflow creates a simple shell task, not an arbitrary VS Code task schema editor.
 
-### Step 1: choose workspace folder
+### Step 1: choose a storage target
 
-Single-root: use that folder.
+In a saved workspace, the Quick Pick offers **Entire Workspace**, with the active `.code-workspace` URI, followed by each workspace folder with its name and URI.
 
-Multi-root: show a Quick Pick with folder name + URI.
+**Entire Workspace** appends to the workspace file's `tasks.tasks` array. Choosing a folder appends to that folder's `.vscode/tasks.json`.
 
-No workspace: show **Open a workspace before creating a task.**
+An unsaved workspace offers folder targets only. With a single folder and no saved workspace file, that folder is used directly. With no targets, the extension shows **Open a workspace before creating a task.**
 
-### Step 2: enter label
+### Steps 2–3: enter a label and shell command
 
-Input prompt: **Task label**
+The **Task label** and **Shell command** prompts reject blank input. Canceling any picker or input makes no changes.
 
-Blank/whitespace-only input is rejected by validation.
+### Step 4: validate the configuration
 
-Canceling the input aborts the workflow.
+The selected file must contain a valid JSONC object. Duplicate JSON properties and non-object/non-array task sections are rejected rather than overwritten. Existing task configurations must use version `2.0.0`.
 
-### Step 3: enter command
+Missing task sections are initialized with `version: "2.0.0"` and a `tasks` array. A missing folder task file is created; a missing saved workspace file is reported as an error.
 
-Input prompt: **Shell command**
+Save or revert existing unsaved changes before creating a task. If the buffer changes during creation, the extension stops instead of saving unrelated changes.
 
-Blank/whitespace-only input is rejected.
+### Step 5: append and save
 
-Canceling aborts.
-
-### Step 4: read existing tasks.json
-
-If the file exists, Tasks Sidebar reads and parses it as JSONC.
-
-Comments and trailing commas are accepted for parsing.
-
-If the file does not exist, the in-memory starting document is:
-
-```json
-{
-  "version": "2.0.0",
-  "tasks": []
-}
-```
-
-### Step 5: validate structure
-
-The parsed top-level document must be an object containing a `tasks` array.
-
-If `tasks` is absent/not an array, creation fails. The extension does not silently replace an unrelated structure with a new array.
-
-If `version` is absent/falsy, it becomes `2.0.0`.
-
-### Step 6: append task
-
-The appended object is:
+The new entry is:
 
 ```json
 {
@@ -177,58 +150,9 @@ The appended object is:
 }
 ```
 
-Then the extension writes the whole document, opens it, and refreshes the board.
+Targeted JSONC edits preserve comments, existing task data and other workspace configuration. Formatting around the insertion may change. The file is opened, saved and the board refreshed; a created workspace task appears at workspace scope and can be run from its card.
 
-## Important JSONC formatting behavior
-
-Tasks Sidebar **parses** existing task files as JSONC, but **writes** the Create-task result with `JSON.stringify(..., null, 2)`.
-
-That means the structural JSON data is preserved, but source formatting details are not.
-
-Creating a task can remove:
-
-- line comments;
-- block comments;
-- trailing commas;
-- custom indentation/formatting.
-
-Example before:
-
-```jsonc
-{
-  // Development tasks
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "build",
-      "type": "shell",
-      "command": "npm run build",
-    },
-  ],
-}
-```
-
-After creating a `test` task, the file is normalized JSON:
-
-```json
-{
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "build",
-      "type": "shell",
-      "command": "npm run build"
-    },
-    {
-      "label": "test",
-      "type": "shell",
-      "command": "npm test"
-    }
-  ]
-}
-```
-
-If comments/formatting are important, edit `tasks.json` manually instead of using Create task, or review the diff in source control afterward.
+Errors name the affected file and include the syntax, structure, permission or save failure. Review any unsaved editor changes after a save failure before retrying.
 
 ## Invalid tasks.json
 
@@ -248,9 +172,9 @@ Retry is available and the last-good task list can remain visible where possible
 
 Create task parses the file directly. Invalid JSONC or an invalid top-level `tasks` structure causes creation to fail and reports:
 
-**The task could not be created. Check tasks.json permissions and JSON syntax.**
+**The task could not be created in `<file URI>`.**
 
-The message is intentionally broad; a structurally invalid `tasks` field can also produce it.
+The message includes the underlying error and an actionable recovery hint when available.
 
 ## Valid VS Code task syntax examples
 
