@@ -65,12 +65,13 @@ function makeStoredZip(entries, method = 0) {
   return Buffer.concat([...localParts, ...centralParts, end]);
 }
 
-function makeVsix(version, method = 0, extraEntries = {}) {
+function makeVsix(version, method = 0, extraEntries = {}, dependencies) {
   const manifest = {
     name: 'fixture',
     publisher: 'fixture',
     version,
     main: './out/extension.js',
+    ...(dependencies ? { dependencies } : {}),
     icon: './resources/marketplace-icon.png',
     contributes: {
       viewsContainers: { activitybar: [{ id: 'tasksSidebar', title: 'Tasks', icon: './resources/tasks.svg' }] },
@@ -158,6 +159,38 @@ test('VSIX content audit checks runtime assets and rejects development or creden
     'extension/.env.local': 'TOKEN=do-not-package',
   }));
   assert.throws(() => inspectVsix(vsix), /forbidden development, local, or credential files/);
+
+  fs.writeFileSync(vsix, makeVsix('0.0.5', 0, {
+    'extension/node_modules/jsonc-parser/package.json': '{"main":"./lib/umd/main.js"}',
+    'extension/node_modules/jsonc-parser/lib/umd/main.js': 'module.exports = {};',
+    'extension/node_modules/jsonc-parser/LICENSE.md': 'MIT',
+  }));
+  assert.doesNotThrow(() => inspectVsix(vsix));
+  for (const entry of [
+    'extension/node_modules/typescript/lib/typescript.js',
+    'extension/node_modules/jsonc-parser/test/fixture.js',
+    'extension/node_modules/jsonc-parser/lib/umd/main.js.map'
+  ]) {
+    fs.writeFileSync(vsix, makeVsix('0.0.5', 0, { [entry]: 'development content' }));
+    assert.throws(() => inspectVsix(vsix), /forbidden development, local, or credential files/);
+  }
+});
+
+test('VSIX verification requires every declared JSONC parser runtime asset', (t) => {
+  const directory = fixtureDirectory(t);
+  const vsix = path.join(directory, 'fixture.vsix');
+  const files = ['package.json', 'LICENSE.md', 'lib/umd/main.js',
+    ...['edit', 'format', 'parser', 'scanner', 'string-intern'].map(name => 'lib/umd/impl/' + name + '.js')];
+  const entries = Object.fromEntries(files.map(file => ['extension/node_modules/jsonc-parser/' + file, 'runtime fixture']));
+  const dependencies = { 'jsonc-parser': '^3.3.1' };
+  fs.writeFileSync(vsix, makeVsix('0.0.5', 0, entries, dependencies));
+  assert.doesNotThrow(() => inspectVsix(vsix));
+  for (const file of files) {
+    const missing = { ...entries };
+    delete missing['extension/node_modules/jsonc-parser/' + file];
+    fs.writeFileSync(vsix, makeVsix('0.0.5', 0, missing, dependencies));
+    assert.throws(() => inspectVsix(vsix), /missing required package files/);
+  }
 });
 
 test('VSIX verifier reads deflated ZIP entries and rejects malformed archives', (t) => {

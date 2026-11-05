@@ -21,14 +21,24 @@
       "name": "repo-empty"
     }
   ],
+  "settings": {
+    // A similarly named task in another section must never be selected.
+    "tasksSidebar.testShadow": {"tasks": [{"label": "Workspace file integration task"}]},
+  },
   "tasks": {
     "version": "2.0.0",
     "tasks": [
       {
         "label": "Workspace file integration task",
         "type": "shell",
-        "command": "echo workspace"
-      }
+        "command": "echo workspace",
+      },
+      {
+        // Same label as tasks in repo-a and repo-b, distinct workspace scope.
+        "label": "Repo integration duplicate",
+        "type": "shell",
+        "command": "echo workspace-duplicate",
+      },
     ]
   }
 }

@@ -474,6 +474,75 @@ test('task definition navigation rejects duplicate, renamed and nested labels', 
   }
 });
 
+test('workspace navigation follows only tasks.tasks with exact JSONC offsets', () => {
+  const { findTaskDefinitionRange } = require('../out/runtime.js');
+  const entry = '{"label":"same\\u0020task","command":"echo 🌿 } [", "options":{"label":"nested"},}';
+  const text = '\uFEFF{\r\n // {"label":"same task"}\r\n' +
+    '"settings":{"tasks":{"tasks":[{"label":"same task"}]}},\r\n' +
+    '"tasks":{"version":"2.0.0","tasks":[' + entry + ',]},}';
+  const range = findTaskDefinitionRange(text, 'same task', 'workspace');
+  assert.ok(range);
+  assert.equal(text.slice(range.start, range.end), entry);
+  assert.equal(findTaskDefinitionRange(text, 'same task'), undefined);
+  assert.equal(findTaskDefinitionRange(text, 'nested', 'workspace'), undefined);
+  assert.equal(findTaskDefinitionRange(text, 'renamed', 'workspace'), undefined);
+  assert.equal(findTaskDefinitionRange('{"tasks":[{"label":"same task"}]}', 'same task', 'workspace'), undefined);
+  assert.equal(findTaskDefinitionRange('{"tasks":{"tasks":[{"label":"same"},{"label":"same"}]}}', 'same', 'workspace'), undefined);
+});
+
+test('task navigation and creation reject invalid syntax and duplicate JSON keys', () => {
+  const { findTaskDefinitionRange, appendShellTask } = require('../out/runtime.js');
+  for (const text of [
+    '{"tasks":{},"tasks":{"tasks":[{"label":"same"}]}}',
+    '{"tasks":{"tasks":[{"label":"same","label":"renamed"}]}}',
+    '{"tasks":{"tasks":[]}} /* unterminated',
+    '{"tasks":{"tasks":[]}, "broken": }', '[]', 'null'
+  ]) {
+    assert.throws(() => findTaskDefinitionRange(text, 'same', 'workspace'));
+    assert.throws(() => appendShellTask(text, 'new task', 'echo ok', 'workspace'));
+  }
+});
+
+test('shell task creation preserves workspace comments, existing tasks and other settings', () => {
+  const { appendShellTask } = require('../out/runtime.js');
+  const text = '{\r\n\t// Keep workspace folders\r\n\t"folders": [{"path":"repo"},],\r\n' +
+    '\t"tasks": {"version":"2.0.0", "tasks": [\r\n' +
+    '\t\t/* keep task */ {"label":"old","type":"process","command":"node","args":["--version"],}, // keep trailing\r\n' +
+    '\t]},\r\n\t"settings": {"editor.tabSize": 3,},\r\n}\r\n';
+  const result = appendShellTask(text, ' new "task" ', ' echo \\"hi\\" ', 'workspace');
+  for (const comment of ['// Keep workspace folders', '/* keep task */', '// keep trailing']) assert.ok(result.includes(comment));
+  assert.ok(result.includes('"folders": [{"path":"repo"},]'));
+  assert.ok(result.includes('"settings": {"editor.tabSize": 3,}'));
+  assert.deepEqual(parseJsonc(result).tasks.tasks[0], { label: "old", type: "process", command: "node", args: ["--version"] });
+  assert.equal(result.replace(/\r\n/g, '').includes('\n'), false, 'New text uses CRLF.');
+  const parsed = parseJsonc(result);
+  assert.equal(parsed.tasks.tasks.length, 2);
+  assert.deepEqual(parsed.tasks.tasks[1], { label: 'new "task"', type: 'shell', command: 'echo \\"hi\\"' });
+});
+
+test('shell task creation initializes missing workspace task sections safely', () => {
+  const { appendShellTask } = require('../out/runtime.js');
+  for (const text of ['{}', '{"folders":[], /*keep*/}', '{"tasks":{}}', '{"tasks":{"tasks":[]}}', '{"tasks":{"version":"2.0.0"}}']) {
+    const parsed = parseJsonc(appendShellTask(text, 'new', 'echo ok', 'workspace'));
+    assert.deepEqual(parsed.tasks, { version: '2.0.0', tasks: [{ label: 'new', type: 'shell', command: 'echo ok' }] });
+  }
+  const bom = appendShellTask('\uFEFF{ "folders": [] }', 'new', 'echo ok', 'workspace');
+  assert.equal(bom[0], '\uFEFF');
+  assert.ok(bom.includes('"folders": []'));
+});
+
+test('shell task creation retains folder scope and refuses unsafe workspace task structures', () => {
+  const { appendShellTask } = require('../out/runtime.js');
+  const folder = appendShellTask('{"version":"2.0.0",/*keep*/"tasks":[]}', 'new', 'echo ok');
+  assert.ok(folder.includes('/*keep*/'));
+  assert.deepEqual(parseJsonc(folder).tasks, [{ label: 'new', type: 'shell', command: 'echo ok' }]);
+  for (const config of [null, [], 'text', { tasks: {} }, { tasks: null }, { version: '0.1.0', tasks: [] }, { version: 2, tasks: [] }]) {
+    assert.throws(() => appendShellTask(JSON.stringify({ tasks: config }), 'new', 'echo ok', 'workspace'));
+  }
+  assert.throws(() => appendShellTask('{}', ' ', 'echo ok', 'workspace'));
+  assert.throws(() => appendShellTask('{}', 'new', ' ', 'workspace'));
+});
+
 test('optional regex search supports anchors, alternatives, fields and existing filters', () => {
   const { compileTaskSearchRegex } = require('../out/runtime.js');
   const tasks = [

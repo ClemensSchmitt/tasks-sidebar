@@ -1,3 +1,5 @@
+import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree, printParseErrorCode, type Node, type ParseError } from 'jsonc-parser';
+
 export type TaskOutcome = 'success' | 'failed' | 'cancelled' | 'unknown' | 'stale';
 export type ProgressState = 'unknown' | 'measured' | 'overtime' | 'completed' | 'failed' | 'cancelled' | 'stale';
 export type DependencyOrder = 'sequence' | 'parallel';
@@ -645,36 +647,73 @@ export function isCurrentRefresh(requestRevision: number, currentRevision: numbe
   return requestRevision === currentRevision;
 }
 
-/** Locate a unique direct tasks[] entry without changing JSONC or its offsets. */
-export function findTaskDefinitionRange(input: string, name: string): { start: number; end: number } | undefined {
-  const root = parseJsonc(input) as { tasks?: unknown[] };
-  if (!root || !Array.isArray(root.tasks)) return undefined;
-  // Strings and comments are single tokens, so braces inside them cannot affect depth.
-  const tokens = [...input.matchAll(/"(?:\\.|[^"\\])*"|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|[{}\[\]:,]/g)]
-    .filter(token => !token[0].startsWith('/'));
-  let depth = 0;
-  let arrayDepth = -1;
-  let start: number | undefined;
-  const matches: { start: number; end: number }[] = [];
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    const value = token[0];
-    if (depth === 1 && value.startsWith('"') && JSON.parse(value) === 'tasks' && tokens[index + 1]?.[0] === ':' && tokens[index + 2]?.[0] === '[') {
-      arrayDepth = 2;
-    }
-    if (value === '{' || value === '[') {
-      if (arrayDepth === depth && value === '{') start = token.index!;
-      depth += 1;
-    } else if (value === '}' || value === ']') {
-      if (value === '}' && depth === arrayDepth + 1 && start !== undefined) {
-        const end = token.index! + 1;
-        const task = parseJsonc(input.slice(start, end)) as { label?: unknown; taskName?: unknown };
-        if ((task.label ?? task.taskName) === name) matches.push({ start, end });
-        start = undefined;
-      }
-      if (value === ']' && depth === arrayDepth) arrayDepth = -1;
-      depth -= 1;
-    }
+export type TaskFileKind = 'folder' | 'workspace';
+
+/** Parse without recovery: edits and navigation must never use a guessed JSONC tree. */
+function taskDocumentTree(input: string): Node {
+  const errors: ParseError[] = [];
+  // A BOM is trivia; replacing it keeps all source offsets unchanged.
+  const root = parseTree(input.replace(/^\uFEFF/, ' '), errors, { allowTrailingComma: true });
+  if (errors.length) {
+    throw new Error(`Invalid JSONC: ${printParseErrorCode(errors[0].error)} at offset ${errors[0].offset}. Fix the syntax and retry.`);
   }
-  return matches.length === 1 ? matches[0] : undefined;
+  if (!root || root.type !== 'object') throw new Error('The task configuration must be a JSON object.');
+  const checkKeys = (node: Node): void => {
+    if (node.type === 'object') {
+      const keys = new Set<string>();
+      for (const property of node.children ?? []) {
+        const key = property.children![0].value as string;
+        if (keys.has(key)) throw new Error(`Duplicate JSON property "${key}". Remove the ambiguity and retry.`);
+        keys.add(key);
+      }
+    }
+    for (const child of node.children ?? []) checkKeys(child);
+  };
+  checkKeys(root);
+  return root;
+}
+
+/** Select only the unique task at the explicit configuration path, preserving offsets. */
+export function findTaskDefinitionRange(input: string, name: string, kind: TaskFileKind = 'folder'): { start: number; end: number } | undefined {
+  const root = taskDocumentTree(input);
+  const tasks = findNodeAtLocation(root, kind === 'workspace' ? ['tasks', 'tasks'] : ['tasks']);
+  if (tasks?.type !== 'array') return undefined;
+  const matches = (tasks.children ?? []).filter(node => {
+    if (node.type !== 'object') return false;
+    const task = getNodeValue(node) as { label?: unknown; taskName?: unknown };
+    return (task.label ?? task.taskName) === name;
+  });
+  return matches.length === 1 ? { start: matches[0].offset, end: matches[0].offset + matches[0].length } : undefined;
+}
+
+/** Append with local JSONC edits; preserve existing comments, tasks and unrelated settings. */
+export function appendShellTask(input: string, label: string, command: string, kind: TaskFileKind = 'folder'): string {
+  if (!label.trim() || !command.trim()) throw new Error('Enter a task label and shell command.');
+  const root = taskDocumentTree(input);
+  const configPath = kind === 'workspace' ? ['tasks'] : [];
+  const config = findNodeAtLocation(root, configPath);
+  if (config && config.type !== 'object') throw new Error('The tasks configuration must be an object.');
+  const tasksPath = [...configPath, 'tasks'];
+  const tasks = findNodeAtLocation(root, tasksPath);
+  if (tasks && tasks.type !== 'array') throw new Error('The tasks configuration must contain a tasks array.');
+  const version = config && findNodeAtLocation(config, ['version']);
+  if (version && (version.type !== 'string' || version.value !== '2.0.0')) {
+    throw new Error('Task creation requires version "2.0.0". Update the task configuration and retry.');
+  }
+  const task = { label: label.trim(), type: 'shell', command: command.trim() };
+  const indentation = input.match(/(?:^|\n)([ \t]+)"/)?.[1];
+  const options = { formattingOptions: {
+    insertSpaces: !indentation?.includes('\t'),
+    tabSize: indentation && !indentation.includes('\t') ? indentation.length : 2,
+    eol: input.includes('\r\n') ? '\r\n' : '\n'
+  } };
+  let result = input;
+  if (!config) {
+    result = applyEdits(result, modify(result, configPath, { version: '2.0.0', tasks: [task] }, options));
+  } else {
+    if (!version) result = applyEdits(result, modify(result, [...configPath, 'version'], '2.0.0', options));
+    result = applyEdits(result, modify(result, tasks ? [...tasksPath, -1] : tasksPath, tasks ? task : [task], options));
+  }
+  taskDocumentTree(result);
+  return result;
 }
