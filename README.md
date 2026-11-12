@@ -54,7 +54,7 @@ The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enable
 - Deterministic sorting by name, status, elapsed time or folder
 - Custom drag-and-drop ordering of task cards, saved per workspace; keyboard Move up/Move down actions are available
 - Edit `tasks.json`, or create a shell task through the board
-- Version, host and provider labels are visible in the sidebar
+- Version, available task count and provider labels are visible in the sidebar
 - English-only UI with keyboard focus, screen-reader labels and reduced-motion support
 
 ## Task discovery and provider policy
@@ -96,7 +96,7 @@ The board does not provide toolbar buttons for task output or terminal focus. Us
 
 The CI Linux jobs run a local Linux Extension Host; they do not certify WSL, a Dev Container or Remote SSH. Each remote host class must be checked and recorded separately before it is described as validated. The repeatable manual procedure and blank run record are in [the remote workspace smoke test](test/remote-smoke/README.md).
 
-The extension declares `extensionKind: workspace`, so it runs in the extension host for the selected workspace. The board identifies that host as `Local extension host` or `Remote · <name>`; provider and file error messages use the same host label. WSL, Dev Container and SSH use VS Code's workspace task and URI-based file APIs, but their support remains best effort until the corresponding smoke run is recorded.
+The extension declares `extensionKind: workspace`, so it runs in the extension host for the selected workspace. The board header shows the total number of available task definitions, independently of current search and filters. The host is still identified as `Local extension host` or `Remote · <name>` in provider and file error messages. WSL, Dev Container and SSH use VS Code's workspace task and URI-based file APIs, but their support remains best effort until the corresponding smoke run is recorded.
 
 After a reload or reconnect, executions that VS Code reports are restored. If an execution previously marked stale is reported again by the same extension host, the next reconciliation restores it to its active state before a new Start request is accepted. When no process-end event was observed, an unconfirmed stop request is cleared so the task can be stopped again; when process-end evidence exists, the stop intent is retained while the extension waits for task-end. A new Start request is blocked while that execution is reported. If VS Code no longer reports an observed execution, the extension eventually records it as unknown/stale; a lost connection alone is not treated as proof of success or a confirmed stop. Task files are read and edited through the selected workspace folder's VS Code APIs.
 
