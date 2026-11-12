@@ -127,6 +127,7 @@ function createEmbeddedWebviewHarness(html) {
 
   return {
     list: element('list'),
+    taskCount: element('taskCount'),
     tagFilter: element('tagFilter'),
     search: element('search'),
     regexToggle: element('regexToggle'),
@@ -388,6 +389,7 @@ async function run() {
     'id="search"', 'id="filter"', 'id="tagFilter"', 'id="sort"'
   ]) assert.ok(webviewHarness.html.includes(control), 'Missing sidebar UI control ' + control + '.');
   assert.match(webviewHarness.html, /<input id="search" class="search" type="text"/);
+  assert.match(webviewHarness.html, /id="taskCount" class="host" role="status" aria-live="polite"/);
   assert.match(webviewHarness.html, /\.board-tools \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/);
   const searchControls = webviewHarness.html.match(/<div class="search-wrap">([^]*?)<\/div>/)[1];
   assert.deepStrictEqual(searchControls.match(/<(?:input|button)\b[^>]*>/g).map(control => control.match(/\bid="([^"]+)"/)?.[1]), ['search', 'regexToggle']);
@@ -454,12 +456,14 @@ async function run() {
   });
   let renderedTaskHtml = embeddedWebview.list.innerHTML;
   assert.match(renderedTaskHtml, /Validated task/, 'A valid render message should display the task.');
+  assert.equal(embeddedWebview.taskCount.textContent, '2 tasks', 'The header counts available task definitions.');
   assert.match(renderedTaskHtml, /test &amp; smoke/, 'Task tags should be rendered as escaped labels.');
   assert.match(renderedTaskHtml, /Untagged task/, 'Tasks without tags remain visible before filtering.');
   assert.match(embeddedWebview.regexToggle.id, /regexToggle/);
   assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'false');
   const messageCountBeforeRegex = embeddedWebview.postedMessages.length;
   embeddedWebview.setSearch('^Valid');
+  assert.equal(embeddedWebview.taskCount.textContent, '2 tasks', 'Search does not change the total task count.');
   assert.match(embeddedWebview.list.innerHTML, /No matching tasks/, 'Literal search does not interpret anchors.');
   embeddedWebview.toggleRegex();
   assert.equal(embeddedWebview.regexToggle.getAttribute('aria-pressed'), 'true');
@@ -549,9 +553,20 @@ async function run() {
 
   embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot], warning: 'Updated warning.' });
   assert.equal(embeddedWebview.warningRegion.children[0]?.dataset.message, 'Updated warning.');
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, id: 'folder-b', workspaceFolderName: 'Folder B' }, { ...taskSnapshot, id: 'npm-task', source: 'npm' }] });
+  assert.equal(embeddedWebview.taskCount.textContent, '3 tasks', 'Multi-root and enabled external-provider definitions count separately.');
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, id: 'folder-b', workspaceFolderName: 'Folder B' }] });
+  assert.equal(embeddedWebview.taskCount.textContent, '2 tasks', 'Removing external-provider tasks updates the count.');
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, executionId: 'parallel-2' }, { ...untaggedTaskSnapshot, orphaned: true }] });
+  assert.equal(embeddedWebview.taskCount.textContent, '1 task', 'Parallel executions and orphaned entries do not inflate the count.');
+  embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot] });
+  assert.equal(embeddedWebview.taskCount.textContent, '1 task', 'Singular label is used for one task.');
   embeddedWebview.send({ command: 'render', snapshots: [] });
+  assert.equal(embeddedWebview.taskCount.textContent, '0 tasks', 'A successful empty discovery displays zero tasks.');
   assert.doesNotMatch(embeddedWebview.list.innerHTML, /Validated task/, 'A valid empty render should clear tasks.');
   assert.equal(embeddedWebview.warningRegion.children.length, 0, 'A valid warning-free render should clear warnings.');
+  embeddedWebview.send({ command: 'render', snapshots: [], warning: 'Discovery failed' });
+  assert.equal(embeddedWebview.taskCount.textContent, 'Tasks unavailable', 'Failure without data must not report zero tasks.');
 
   const failureReports = [];
   const failingBoard = Object.fromEntries(

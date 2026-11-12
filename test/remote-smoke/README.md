@@ -23,7 +23,7 @@ A local Linux CI job is not a WSL or Dev Container run. Record evidence for each
 ## Procedure
 
 1. Connect to one target: **WSL**, **Dev Containers**, or **Remote SSH**. Open the remote extension's **Installed** list and confirm the candidate version is installed there.
-2. Open this folder in the remote window: `test/remote-smoke`. Open the **Tasks** Activity Bar view and run **Tasks: Refresh**. Confirm the board header displays `Remote · <name>`, and that **Remote smoke: quick success**, **Remote smoke: expected failure**, and **Remote smoke: long runner** are listed as Workspace tasks.
+2. Open this folder in the remote window: `test/remote-smoke`. Open the **Tasks** Activity Bar view and run **Tasks: Refresh**. Confirm the board header displays `3 tasks` (or the correct number if extra providers are enabled), and that **Remote smoke: quick success**, **Remote smoke: expected failure**, and **Remote smoke: long runner** are listed as Workspace tasks.
 3. Run **Remote smoke: quick success**. Confirm its output contains `REMOTE_SMOKE_OK`, its outcome becomes successful, and its completed-run count/history is updated.
 4. Run **Remote smoke: expected failure**. Confirm its output contains `REMOTE_SMOKE_EXPECTED_FAILURE` and the outcome is failed, not successful.
 5. Start **Remote smoke: long runner**. Confirm it stays running and emits `REMOTE_SMOKE_TICK`. Stop it from the board. Confirm VS Code reports the end and the board records cancellation; if VS Code does not confirm the end, record the actual unknown/stale result instead of calling it stopped.
