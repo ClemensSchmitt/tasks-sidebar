@@ -61,12 +61,14 @@ function createWebviewHarness(board) {
 
 function createEmbeddedWebviewHarness(html) {
   const listeners = new Map();
+  const documentListeners = new Map();
   const elements = new Map();
   const postedMessages = [];
 
   class FakeElement {
     constructor(id) {
       this.id = id;
+      this.hidden = id === 'tagPopover';
       this.value = '';
       this.dataset = {};
       this.style = { setProperty() {} };
@@ -96,8 +98,8 @@ function createEmbeddedWebviewHarness(html) {
       }
       return selector === 'input:checked' ? this.tagInputs.filter(input => input.checked) : this.tagInputs;
     }
-    contains() { return false; }
-    focus() {}
+    contains(target) { return this === target || (this.id === 'tagPicker' && ['tagSummary', 'tagPopover', 'tagFilter', 'clearTags'].includes(target?.id)); }
+    focus() { this.focused = true; }
   }
 
   const element = id => {
@@ -112,7 +114,8 @@ function createEmbeddedWebviewHarness(html) {
       activeElement: null,
       getElementById: element,
       createElement: tag => new FakeElement(tag),
-      querySelectorAll: () => []
+      querySelectorAll: () => [],
+      addEventListener: (type, listener) => documentListeners.set(type, listener)
     },
     window: {
       matchMedia: () => ({ matches: true, addEventListener() {} }),
@@ -129,6 +132,11 @@ function createEmbeddedWebviewHarness(html) {
     list: element('list'),
     taskCount: element('taskCount'),
     tagFilter: element('tagFilter'),
+    tagSummary: element('tagSummary'),
+    tagPopover: element('tagPopover'),
+    toggleTagDropdown() { element('tagSummary').listeners.get('click')?.(); },
+    pointerDown(target) { documentListeners.get('pointerdown')?.({ target: element(target) }); },
+    pressEscape() { documentListeners.get('keydown')?.({ key: 'Escape', preventDefault() {} }); },
     search: element('search'),
     regexToggle: element('regexToggle'),
     searchError: element('searchError'),
@@ -394,7 +402,12 @@ async function run() {
   const searchControls = webviewHarness.html.match(/<div class="search-wrap">([^]*?)<\/div>/)[1];
   assert.deepStrictEqual(searchControls.match(/<(?:input|button)\b[^>]*>/g).map(control => control.match(/\bid="([^"]+)"/)?.[1]), ['search', 'regexToggle']);
   assert.doesNotMatch(webviewHarness.html, /::-webkit-search-cancel-button/);
-  assert.match(webviewHarness.html, /#tagFilter \{[^}]*grid-auto-rows: 1\.5em; max-height: calc\(6em \+ 15px\); overflow-y: auto/);
+  assert.match(webviewHarness.html, /\.tag-popover \{ position: absolute; z-index: 40;/);
+  assert.match(webviewHarness.html, /\.tag-popover\[hidden\] \{ display: none;/);
+  assert.match(webviewHarness.html, /#tagFilter \{ display: flex; flex-direction: column; max-height: 140px; overflow-y: auto;/);
+  assert.match(webviewHarness.html, /#tagFilter label \{[^}]*height: 28px; min-height: 28px;/);
+  assert.match(webviewHarness.html, /id="tagSummary"[^>]*>Tags<span/);
+  assert.doesNotMatch(webviewHarness.html, /Tags \(all required\)/);
   assert.doesNotMatch(webviewHarness.html, /resetView|Reset search and filters/);
   for (const action of ['run', 'stop', 'restart', 'edit']) {
     assert.ok(webviewHarness.html.includes('data-action="' + action + '"'), 'Missing task-card action ' + action + '.');
@@ -486,6 +499,12 @@ async function run() {
     'Custom sort uses the saved logical task order.');
   embeddedWebview.setSort('name');
   assert.match(embeddedWebview.tagFilter.innerHTML, /value="test &amp; smoke"/, 'Tag choices should be populated from task snapshots.');
+  assert.equal(embeddedWebview.tagPopover.hidden, true, 'Tag dropdown starts closed.');
+  embeddedWebview.toggleTagDropdown();
+  assert.equal(embeddedWebview.tagPopover.hidden, false, 'Clicking the trigger opens the overlay.');
+  assert.equal(embeddedWebview.tagSummary.getAttribute('aria-expanded'), 'true');
+  embeddedWebview.pointerDown('tagFilter');
+  assert.equal(embeddedWebview.tagPopover.hidden, false, 'Interacting inside the overlay keeps it open.');
   embeddedWebview.selectTag('test & smoke');
   assert.match(embeddedWebview.list.innerHTML, /Validated task/, 'Selecting a tag keeps matching tasks visible.');
   assert.doesNotMatch(embeddedWebview.list.innerHTML, /Untagged task/, 'Selecting a tag hides tasks without that tag.');
@@ -495,6 +514,14 @@ async function run() {
   const tagSnapshots = [taskSnapshot, untaggedTaskSnapshot, both, extra, second];
   embeddedWebview.send({ command: 'render', snapshots: tagSnapshots, warning: 'Some task providers could not be scanned.' });
   embeddedWebview.selectTag(['test & smoke', 'second']);
+  assert.equal(embeddedWebview.tagPopover.hidden, false, 'Selecting multiple checkboxes keeps the dropdown open.');
+  assert.equal(embeddedWebview.tagSummary.getAttribute('aria-label'), 'Tags, 2 selected');
+  embeddedWebview.pointerDown('sort');
+  assert.equal(embeddedWebview.tagPopover.hidden, true, 'Clicking outside closes the dropdown.');
+  embeddedWebview.toggleTagDropdown();
+  embeddedWebview.pressEscape();
+  assert.equal(embeddedWebview.tagPopover.hidden, true, 'Escape closes the dropdown.');
+  assert.equal(embeddedWebview.tagSummary.focused, true, 'Escape returns focus to the trigger.');
   // Combined search and AND tag filtering must not lose selected state.
   embeddedWebview.toggleRegex();
   embeddedWebview.setSearch('^(Both|Extra) tags$');
@@ -513,6 +540,13 @@ async function run() {
   embeddedWebview.clearTags();
   assert.match(embeddedWebview.list.innerHTML, /Untagged task/);
   assert.equal(embeddedWebview.tagFilter.querySelectorAll('input:checked').length, 0);
+  const sixTags = { ...taskSnapshot, id: 'six-tags', tags: ['one', 'two', 'three', 'four', 'five', 'six'] };
+  embeddedWebview.send({ command: 'render', snapshots: [sixTags] });
+  assert.equal(embeddedWebview.tagFilter.querySelectorAll('input').length, 6,
+    'All options remain reachable even though only five checkbox rows fit in the scrollable panel.');
+  embeddedWebview.send({ command: 'render', snapshots: [untaggedTaskSnapshot] });
+  assert.match(embeddedWebview.tagFilter.innerHTML, /No tags available/, 'Empty tag lists show an empty state.');
+  embeddedWebview.send({ command: 'render', snapshots: tagSnapshots });
   embeddedWebview.selectTag(['test & smoke', 'second']);
   embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, untaggedTaskSnapshot] });
   assert.match(embeddedWebview.list.innerHTML, /Validated task/);
