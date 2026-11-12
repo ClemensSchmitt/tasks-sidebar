@@ -6,9 +6,9 @@ For complete product behavior, edge cases and troubleshooting, see the **[Tasks 
 
 ## Install
 
-Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/tag/v0.0.6), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
+Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [latest published Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
 
-The latest published GitHub release is **v0.0.6**. There is no Visual Studio Code Marketplace listing yet.
+There is no Visual Studio Code Marketplace listing yet.
 
 ## Getting started
 
