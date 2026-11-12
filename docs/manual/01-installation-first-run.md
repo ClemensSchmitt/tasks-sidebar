@@ -36,7 +36,7 @@ At the top of the board you will see:
 
 - **Tasks** — the board title.
 - **Version badge** — the loaded extension package version, for example `v0.0.6`.
-- **Host label** — either `Local extension host` or `Remote · <name>`.
+- **Task count** — the number of distinct available task definitions, for example `0 tasks`, `1 task`, or `12 tasks`. The count is independent of the active search and filters.
 - **Refresh** — re-runs task discovery.
 - **Create task** — creates a simple workspace shell task.
 - **Open tasks.json** — opens the selected workspace folder's task file.
@@ -139,7 +139,7 @@ See [Troubleshooting and recovery](09-troubleshooting.md).
 
 The header's version is the package actually loaded by the extension host.
 
-The host label is generated from VS Code's environment:
+Host labels remain available in diagnostic and file/provider error messages. They are generated from VS Code's environment:
 
 - no remote name: `Local extension host`;
 - remote name present: `Remote · <name>`.

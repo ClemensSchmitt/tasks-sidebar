@@ -1536,7 +1536,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
 </head>
 <body>
   <div class="top">
-    <div><div class="eyebrow">Workspace flow</div><h1>Tasks <span class="version">v${safeVersion}</span></h1><span class="host">${safeHost}</span></div>
+    <div><div class="eyebrow">Workspace flow</div><h1>Tasks <span class="version">v${safeVersion}</span></h1><span id="taskCount" class="host" role="status" aria-live="polite" aria-atomic="true" title="${safeHost}">Loading tasks…</span></div>
     <div class="actions" role="group" aria-label="Task actions"><button type="button" id="refresh" title="Refresh tasks" aria-label="Refresh tasks">↻</button><button type="button" id="create" class="primary" title="Create task" aria-label="Create task">＋</button><button type="button" id="edit" class="primary" title="Open tasks.json" aria-label="Open tasks.json">✎</button></div>
   </div>
   <div class="board-tools" role="group" aria-label="Task board controls">
@@ -1554,6 +1554,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const list = document.getElementById('list');
+    const taskCount = document.getElementById('taskCount');
     const search = document.getElementById('search');
     const regexToggle = document.getElementById('regexToggle');
     const searchError = document.getElementById('searchError');
@@ -1692,12 +1693,23 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         customOrder = [...new Set(message.customOrder)];
       }
       render(message.snapshots);
+      updateTaskCount(message.snapshots, Boolean(message.warning));
       if (message.warning) renderWarning(message.warning);
       else clearWarning();
     });
     // A webview can finish loading after the provider first posts its cached
     // snapshots. Explicit readiness prevents losing the initial message.
     vscode.postMessage({ command: 'ready' });
+    function updateTaskCount(snapshots, hasWarning) {
+      if (!taskCount) return;
+      // A failed discovery without usable definitions is not a confirmed zero.
+      const ids = new Set(snapshots.filter(task => !task.orphaned).map(task => task.id));
+      if (hasWarning && !ids.size) {
+        taskCount.textContent = 'Tasks unavailable';
+        return;
+      }
+      taskCount.textContent = ids.size === 1 ? '1 task' : ids.size + ' tasks';
+    }
     function clearWarning() {
       const retryWasFocused = document.activeElement?.id === 'discoveryRetry';
       warningRegion?.replaceChildren();
