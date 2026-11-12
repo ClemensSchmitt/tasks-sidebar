@@ -4,8 +4,13 @@ Notable user-facing changes are recorded here. Entries under **Unreleased** desc
 
 ## Unreleased
 
+## 0.1.0 — 2026-11-12
+
 - Precisely select workspace-scoped task definitions in `.code-workspace` files, with safe handling of duplicate labels and JSONC (#89).
 - Offer **Entire Workspace** when creating tasks; preserve comments and existing configuration in both workspace and folder task files (#93).
+- Replace the extension-host label in the sidebar header with the number of distinct available tasks (#95).
+- Use an anchored, scrollable multi-select Tags dropdown with up to five visible options, preserving existing AND filtering (#96).
+- Remove the native X/clear button from the task search input while preserving the regex toggle and keyboard editing (#90).
 
 ## 0.0.7 — 2026-10-19
 
