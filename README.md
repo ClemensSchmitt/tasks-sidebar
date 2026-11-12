@@ -37,7 +37,7 @@ Opening the **Tasks** activity-bar view shows already discovered tasks without r
 | --- | --- |
 | `Tasks: Refresh` | Refresh task discovery and the board. |
 | `Tasks: Open tasks.json` | Open the selected workspace task definition. |
-| `Tasks: Create task` | Create a simple shell task in the selected workspace folder. |
+| `Tasks: Create task` | Create a shell task in a folder or the entire saved workspace. |
 | `Tasks: Toggle external task providers` | Toggle visibility of tasks from external providers for this workspace. |
 
 The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enabled, npm, user, extension, and other external providers can appear in the board.
@@ -59,7 +59,7 @@ The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enable
 
 ## Task discovery and provider policy
 
-The extension uses the official `vscode.tasks.fetchTasks()` API and does not use mock data. By default it keeps only workspace tasks whose scope comes from a workspace `.vscode/tasks.json`. npm, user, extension and other external providers are opt-in through `Tasks: Toggle external task providers` or `tasksSidebar.includeExternalTasks`. If aggregate discovery fails, the extension retries provider types declared in workspace task files and keeps any results it can recover, while showing a warning.
+The extension uses the official `vscode.tasks.fetchTasks()` API and does not use mock data. By default it keeps folder tasks from `.vscode/tasks.json` and workspace-scoped shell/process tasks from the active `.code-workspace` file. npm, user, extension and other external providers are opt-in through `Tasks: Toggle external task providers` or `tasksSidebar.includeExternalTasks`. If aggregate discovery fails, the extension retries provider types declared in workspace task files and keeps any results it can recover, while showing a warning.
 
 The provider/source is always shown. If two providers expose the same display name, they remain distinct when their source or definition differs. Exact duplicate logical definitions are rendered once; parallel `TaskExecution` instances are still represented separately. This avoids duplicate cards without hiding real parallel runs.
 
@@ -130,7 +130,9 @@ Output and Terminal panels directly. The [public VS Code API](https://code.visua
 exposes a task and termination on TaskExecution, but no task-specific terminal or output
 handle, so Tasks Sidebar cannot target those surfaces for an individual task.
 
-**Edit** on a workspace task selects its unique definition in that folder's tasks.json,
+**Edit** on a workspace task selects its unique definition in that folder's tasks.json or the active `.code-workspace` file (`tasks.tasks`),
 including JSONC files. Duplicate labels within one file, missing/renamed definitions,
 and external provider tasks produce a message instead of navigating to a guessed task.
-Navigation does not modify the file. **Create Task** is unchanged.
+Navigation does not modify the file.
+
+**Create task** offers **Entire Workspace** in saved workspaces alongside folder targets. It appends a shell task while preserving JSONC comments and existing configuration. Save or revert unsaved changes first; invalid or ambiguous configuration is reported with the affected file URI.
