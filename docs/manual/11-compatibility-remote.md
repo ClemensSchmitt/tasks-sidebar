@@ -25,12 +25,10 @@ The package declares:
 
 Tasks Sidebar is intended to run with the workspace extension host.
 
-The board header reports:
+The board header reports the number of available task definitions (`0 tasks`, `1 task`, or `N tasks`) rather than the extension host. Parallel executions of the same task are counted only once. The host label is still available in diagnostics and file/provider error messages:
 
 - `Local extension host` when `vscode.env.remoteName` is absent;
 - `Remote · <name>` when VS Code reports a remote name.
-
-That host label is also used in many file/provider error messages.
 
 ## Support and validation table
 
@@ -120,7 +118,7 @@ Status: **Best effort; not certified.**
 Expected architecture:
 
 - extension installed/running in the WSL workspace extension host;
-- board label reports `Remote · <name>`;
+- the board header reports a task count, while diagnostics identify `Remote · <name>`;
 - task discovery uses VS Code's remote task API;
 - task-file editing uses remote workspace URI APIs.
 
@@ -167,7 +165,7 @@ The procedure requires, per host class:
 
 1. install the exact candidate VSIX in the remote host;
 2. open `test/remote-smoke` remotely;
-3. confirm `Remote · <name>` and task discovery;
+3. confirm the task count in the header, the remote host label in diagnostics, and task discovery;
 4. run success and verify `REMOTE_SMOKE_OK`;
 5. run failure and verify failed outcome;
 6. run/stop long runner and verify cancellation or conservatively record unknown/stale if end is unconfirmed;
