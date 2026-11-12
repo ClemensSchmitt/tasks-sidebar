@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, missingWorkspaceTaskFolders, observationKey, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
+import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, missingWorkspaceTaskFolders, observationKey, appendShellTask, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
 
 type TaskLifecycle = TaskExecutionLifecycle;
 type TaskHistory = {
@@ -440,17 +440,17 @@ export class TaskBoard {
         }
         try {
           const document = await vscode.workspace.openTextDocument(workspaceFile);
-          const range = findTaskDefinitionRange(document.getText(), task.name);
+          const range = findTaskDefinitionRange(document.getText(), task.name, 'workspace');
           if (!range) {
             await vscode.window.showTextDocument(document);
-            void vscode.window.showWarningMessage('The workspace task definition could not be located automatically.');
+            void vscode.window.showWarningMessage(`The workspace task definition is missing or ambiguous in ${workspaceFile.toString()}. Check its label and tasks.tasks array, then refresh the view.`);
             return;
           }
           const selection = new vscode.Range(document.positionAt(range.start), document.positionAt(range.end));
           const editor = await vscode.window.showTextDocument(document, { selection });
           editor.revealRange(selection, vscode.TextEditorRevealType.InCenter);
         } catch (error) {
-          this.reportError('The workspace task definition could not be opened.', error);
+          this.reportError(`The workspace task definition could not be opened in ${workspaceFile.toString()}. Check its JSONC syntax and refresh the view.`, error);
         }
         return;
       }
@@ -515,45 +515,78 @@ export class TaskBoard {
     }
   }
 
-  async createTask(): Promise<void> {
-    let folder = vscode.workspace.workspaceFolders?.[0];
-    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 1) {
-      const selected = await vscode.window.showQuickPick(
-        vscode.workspace.workspaceFolders.map(item => ({ label: item.name, description: item.uri.toString(), folder: item })),
-        { placeHolder: 'Choose the workspace folder for the new task' }
-      );
-      if (!selected) return;
-      folder = selected.folder;
-    }
-    if (!folder) {
+  async createTask(ui: Pick<typeof vscode.window, 'showQuickPick' | 'showInputBox'> = vscode.window): Promise<void> {
+    const workspaceFile = vscode.workspace.workspaceFile;
+    const savedWorkspace = workspaceFile && workspaceFile.scheme !== 'untitled' ? workspaceFile : undefined;
+    const targets: { label: string; description: string; uri: vscode.Uri; folder?: vscode.WorkspaceFolder; workspaceScoped: boolean }[] = (vscode.workspace.workspaceFolders ?? []).map(folder => ({
+      label: folder.name,
+      description: `Folder · ${folder.uri.toString()}`,
+      uri: vscode.Uri.joinPath(folder.uri, '.vscode', 'tasks.json'),
+      folder,
+      workspaceScoped: false
+    }));
+    if (savedWorkspace) targets.unshift({
+      label: 'Entire Workspace',
+      description: savedWorkspace.toString(),
+      uri: savedWorkspace,
+      workspaceScoped: true
+    });
+    if (!targets.length) {
       void vscode.window.showInformationMessage('Open a workspace before creating a task.');
       return;
     }
-    const label = await vscode.window.showInputBox({ prompt: 'Task label', placeHolder: 'build', validateInput: value => value.trim() ? undefined : 'Enter a task label.' });
+    const target = targets.length > 1 || savedWorkspace
+      ? await ui.showQuickPick(targets, { placeHolder: 'Choose where to save the new task' })
+      : targets[0];
+    if (!target) return;
+    const label = await ui.showInputBox({ prompt: 'Task label', placeHolder: 'build', validateInput: value => value.trim() ? undefined : 'Enter a task label.' });
     if (label === undefined) return;
-    const command = await vscode.window.showInputBox({ prompt: 'Shell command', placeHolder: 'npm run build', validateInput: value => value.trim() ? undefined : 'Enter a command.' });
+    const command = await ui.showInputBox({ prompt: 'Shell command', placeHolder: 'npm run build', validateInput: value => value.trim() ? undefined : 'Enter a command.' });
     if (command === undefined) return;
-    const uri = vscode.Uri.joinPath(folder.uri, '.vscode', 'tasks.json');
+    const uri = target.uri;
     try {
-      let parsed: { version?: string; tasks?: unknown[] } = { version: '2.0.0', tasks: [] };
-      try {
-        const contents = await vscode.workspace.fs.readFile(uri);
-        parsed = parseJsonc(Buffer.from(contents).toString('utf8')) as { version?: string; tasks?: unknown[] };
-      } catch (error) {
-        if (!(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') throw error;
+      // Use the editor buffer, and refuse to save unrelated unsaved user changes.
+      let document = vscode.workspace.textDocuments.find(item => item.uri.toString() === uri.toString());
+      if (!document) {
+        let exists = true;
+        try {
+          await vscode.workspace.fs.stat(uri);
+        } catch (error) {
+          if (target.workspaceScoped || !(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') throw error;
+          exists = false;
+        }
+        if (exists) document = await vscode.workspace.openTextDocument(uri);
       }
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.tasks)) {
-        throw new Error('tasks.json must contain a top-level tasks array.');
+      if (document?.isDirty) throw new Error('Save or revert the existing unsaved changes, then retry.');
+      const version = document?.version;
+      const original = document?.getText() ?? '{\n  "version": "2.0.0",\n  "tasks": []\n}\n';
+      const updated = appendShellTask(original, label, command, target.workspaceScoped ? 'workspace' : 'folder');
+      if (document) {
+        const editor = await vscode.window.showTextDocument(document);
+        if (document.isDirty || document.version !== version) throw new Error('The file changed during task creation. Retry using its latest contents.');
+        const applied = await editor.edit(builder => builder.replace(
+          new vscode.Range(document!.positionAt(0), document!.positionAt(original.length)), updated
+        ));
+        if (!applied) throw new Error('The editor rejected the change. Retry using the latest file contents.');
+        if (document.version !== version! + 1 || document.getText() !== updated) {
+          throw new Error('The file changed during task creation. Review the unsaved changes and retry.');
+        }
+        if (!await document.save()) throw new Error('The file could not be saved. Check permissions and retry.');
+      } else {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(target.folder!.uri, '.vscode'));
+        const edit = new vscode.WorkspaceEdit();
+        // No overwrite: a file created concurrently must not be replaced.
+        edit.createFile(uri, { overwrite: false });
+        edit.insert(uri, new vscode.Position(0, 0), updated);
+        if (!await vscode.workspace.applyEdit(edit)) throw new Error('The file could not be created. Check permissions and retry.');
+        document = await vscode.workspace.openTextDocument(uri);
+        if (document.getText() !== updated) throw new Error('The file changed during task creation. Review the unsaved changes and retry.');
+        if (!await document.save()) throw new Error('The file could not be saved. Check permissions and retry.');
+        await vscode.window.showTextDocument(document);
       }
-      parsed.version = parsed.version || '2.0.0';
-      parsed.tasks.push({ label: label.trim(), type: 'shell', command: command.trim() });
-      await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(folder.uri, '.vscode'));
-      await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(parsed, null, 2) + '\n', 'utf8'));
-      const document = await vscode.workspace.openTextDocument(uri);
-      await vscode.window.showTextDocument(document);
       await this.refresh();
     } catch (error) {
-      this.reportError('The task could not be created. Check tasks.json permissions and JSON syntax.', error);
+      this.reportError(`The task could not be created in ${uri.toString()}.`, error);
     }
   }
 
@@ -942,7 +975,7 @@ export class TaskBoard {
     const jsonWarning = await this.getTasksJsonWarning();
     if (jsonWarning) return jsonWarning;
     const failureKind = classifyDiscoveryFailure({
-      hasWorkspace: Boolean(vscode.workspace.workspaceFolders?.length),
+      hasWorkspace: Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length),
       providerFailed
     });
     if (failureKind === 'empty-workspace') return `[${hostLabel()}] No workspace is open. Open a workspace and try again.`;
@@ -960,7 +993,7 @@ export class TaskBoard {
       includeExternalTasks = vscode.workspace
         .getConfiguration('tasksSidebar')
         .get<boolean>('includeExternalTasks', false);
-      if (!includeExternalTasks && !vscode.workspace.workspaceFolders?.length) {
+      if (!includeExternalTasks && !vscode.workspace.workspaceFile && !vscode.workspace.workspaceFolders?.length) {
         if (isCurrentRefresh(revision, this.refreshRevision) && this.view) {
           this.renderSnapshot([], 'No workspace is open. Open a workspace and try again.');
         }

@@ -4,6 +4,9 @@ Notable user-facing changes are recorded here. Entries under **Unreleased** desc
 
 ## Unreleased
 
+- Precisely select workspace-scoped task definitions in `.code-workspace` files, with safe handling of duplicate labels and JSONC (#89).
+- Offer **Entire Workspace** when creating tasks; preserve comments and existing configuration in both workspace and folder task files (#93).
+
 ## 0.0.7 — 2026-10-19
 
 - Add optional task tags in `tasks.json`, display tags on cards, and filter or search tasks by tag (PR #77).
