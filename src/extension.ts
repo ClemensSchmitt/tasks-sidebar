@@ -1441,13 +1441,19 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .view-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; grid-column: 1 / -1; }
     .view-options .view-select { min-width: 0; }
     .view-options #sort { grid-column: 1 / -1; }
-    .tag-filter { min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; background: var(--surface-raised); }
-    .tag-filter summary { cursor: pointer; overflow-wrap: anywhere; }
-    #tagFilter { display: grid; gap: 5px; grid-template-columns: minmax(0, 1fr); grid-auto-rows: 1.5em; max-height: calc(6em + 15px); overflow-y: auto; margin: 7px 0; }
-    #tagFilter label { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .tag-picker { position: relative; min-width: 0; z-index: 2; }
+    .tag-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 28px; min-width: 0; padding: 5px 7px; text-align: left; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); }
+    .tag-chevron { flex: none; color: var(--muted); }
+    /* An anchored overlay must not participate in the filter grid's layout. */
+    .tag-popover { position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; width: max(100%, min(240px, calc(100vw - 24px))); max-width: calc(100vw - 24px); padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); box-shadow: 0 8px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .25)); }
+    .tag-popover[hidden] { display: none; }
+    #tagFilter { display: flex; flex-direction: column; max-height: 140px; overflow-y: auto; overscroll-behavior: contain; }
+    #tagFilter label { display: flex; align-items: center; gap: 5px; height: 28px; min-height: 28px; padding: 0 3px; min-width: 0; cursor: pointer; }
+    #tagFilter label:focus-within { outline: 1px solid var(--focus); outline-offset: -1px; }
     #tagFilter label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #tagFilter input { flex: none; }
-    .tag-filter summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    #tagFilter .no-tags { min-height: 28px; padding: 6px; color: var(--muted); }
+    #clearTags { width: 100%; margin-top: 4px; padding: 5px 7px; min-height: 26px; text-align: left; color: var(--violet); border-top: 1px solid var(--line); border-radius: 0; }
     .task[draggable="true"] { cursor: grab; }
     .task[draggable="true"]:active { cursor: grabbing; }
     .task.drag-over { outline: 2px dashed var(--focus); outline-offset: 2px; }
@@ -1516,7 +1522,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .restart { color: var(--violet); }
     .high-contrast { border-color: var(--focus); }
     @media (forced-colors: active) {
-      body, .task, .empty-card, .search, .view-select, .tag, .tag-filter { color: CanvasText; border-color: CanvasText; background: Canvas; }
+      body, .task, .empty-card, .search, .view-select, .tag, .tag-trigger, .tag-popover { color: CanvasText; border-color: CanvasText; background: Canvas; }
       button, input, select, .meta, .sub, .host, .empty-hint { color: CanvasText; }
       button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid Highlight; }
       #regexToggle[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
@@ -1544,7 +1550,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     <div id="searchError" role="alert" aria-live="polite"></div>
     <div class="view-options">
       <select id="filter" class="view-select" aria-label="Filter tasks"><option value="all">All tasks</option><option value="running">Running</option><option value="failed">Failed</option><option value="completed">Completed</option><option value="unknown">Unknown / stale</option><option value="external">External providers</option></select>
-      <details class="tag-filter"><summary id="tagSummary">Tags (all required)</summary><div id="tagFilter" role="group" aria-label="Filter tasks by tags (all required)"></div><button id="clearTags" type="button">Clear tags</button></details>
+      <div id="tagPicker" class="tag-picker"><button id="tagSummary" class="tag-trigger" type="button" aria-expanded="false" aria-controls="tagPopover" aria-haspopup="dialog">Tags<span class="tag-chevron" aria-hidden="true">▾</span></button><div id="tagPopover" class="tag-popover" role="dialog" aria-label="Tags" hidden><div id="tagFilter" role="group" aria-label="Filter tasks by tags"></div><button id="clearTags" type="button">Clear tags</button></div></div>
       <select id="sort" class="view-select" aria-label="Sort tasks"><option value="name">Sort: name</option><option value="status">Sort: status</option><option value="elapsed">Sort: elapsed</option><option value="folder">Sort: folder</option><option value="custom">Sort: custom (drag)</option></select>
     </div>
   </div>
@@ -1560,6 +1566,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     const searchError = document.getElementById('searchError');
     const filter = document.getElementById('filter');
     const tagFilter = document.getElementById('tagFilter');
+    const tagPicker = document.getElementById('tagPicker');
+    const tagSummary = document.getElementById('tagSummary');
+    const tagPopover = document.getElementById('tagPopover');
     const sort = document.getElementById('sort');
     const announcer = document.getElementById('announcer');
     const warningRegion = document.getElementById('warning');
@@ -1620,6 +1629,21 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       render(allTasks);
     });
     filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
+    function setTagDropdownOpen(open) {
+      if (!tagPopover || !tagSummary) return;
+      tagPopover.hidden = !open;
+      tagSummary.setAttribute('aria-expanded', String(open));
+    }
+    tagSummary?.addEventListener('click', () => setTagDropdownOpen(tagPopover.hidden));
+    document.addEventListener('pointerdown', event => {
+      if (tagPopover && !tagPopover.hidden && !tagPicker?.contains(event.target)) setTagDropdownOpen(false);
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !tagPopover || tagPopover.hidden) return;
+      setTagDropdownOpen(false);
+      tagSummary?.focus();
+      event.preventDefault();
+    });
     tagFilter?.addEventListener('change', () => {
       selectedTags = Array.from(tagFilter.querySelectorAll('input:checked'), input => input.value);
       render(allTasks);
@@ -2062,12 +2086,12 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       });
       const entries = Array.from(tagsByKey.entries()).sort((left, right) => left[1].localeCompare(right[1]));
       selectedTags = selectedTags.filter(tag => tagsByKey.has(tag));
-      document.getElementById('tagSummary').textContent = 'Tags (all required)' + (selectedTags.length ? ' · ' + selectedTags.length + ' selected' : '');
+      tagSummary?.setAttribute('aria-label', 'Tags' + (selectedTags.length ? ', ' + selectedTags.length + ' selected' : ''));
       const signature = JSON.stringify(entries);
       if (signature !== tagOptionsSignature) {
         tagFilter.innerHTML = entries.length ? entries
           .map(([value, label]) => '<label><input type="checkbox" value="' + escapeHtml(value) + '"><span title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</span></label>')
-          .join('') : '<span>No tags available</span>';
+          .join('') : '<span class="no-tags">No tags available</span>';
         tagOptionsSignature = signature;
       }
       tagFilter.querySelectorAll('input').forEach(input => { input.checked = selectedTags.includes(input.value); });
