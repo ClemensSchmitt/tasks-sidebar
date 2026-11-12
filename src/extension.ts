@@ -1430,7 +1430,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .board-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0 0 10px; }
     .search-wrap { position: relative; min-width: 0; display: flex; align-items: center; }
     .search-wrap .search { width: 100%; padding-right: 40px; }
-    /* Keep Chromium's native clear icon separate from the regex toggle. */
+    /* Reserve input space for the regex toggle; type=text avoids Chromium's native search clear icon. */
     #regexToggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-width: 29px; min-height: 25px; padding: 1px 4px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--ink); font-weight: 700; }
     #regexToggle[aria-pressed="true"] { background: var(--vscode-inputOption-activeBackground, var(--surface-raised)); color: var(--vscode-inputOption-activeForeground, var(--ink)); border-color: var(--vscode-inputOption-activeBorder, var(--focus)); }
     #regexToggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
