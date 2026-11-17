@@ -60,7 +60,7 @@ function inspectHistory() {
     const size = Number(bytesText);
     if (size > MAX_TEXT_BYTES) { oversized++; findings.push({ source: name, sha, rule: 'oversized-blob-not-content-scanned' }); continue; }
     const buffer = execFileSync('git', ['cat-file', 'blob', sha], {
-      cwd: ROOT, encoding: 'buffer', maxBuffer: MAX_TEXT_BYTES + 1024,
+      cwd: ROOT, encoding: null, maxBuffer: MAX_TEXT_BYTES + 1024,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let text;
