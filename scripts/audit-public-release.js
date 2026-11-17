@@ -88,7 +88,13 @@ function scanWithGitleaks() {
     if (![0, 1].includes(result.status)) {
       return { status: 'NOT_CHECKED', reason: 'gitleaks could not complete (exit ' + result.status + ')' };
     }
-    const matches = fs.existsSync(reportPath) ? JSON.parse(fs.readFileSync(reportPath, 'utf8')) : [];
+    if (!fs.existsSync(reportPath)) {
+      return { status: 'NOT_CHECKED', reason: 'gitleaks did not produce a JSON report' };
+    }
+    const matches = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+    if (!Array.isArray(matches) || (result.status === 1 && matches.length === 0)) {
+      return { status: 'NOT_CHECKED', reason: 'gitleaks report and exit status were inconsistent' };
+    }
     return { status: matches.length ? 'FINDINGS' : 'OK', findingCount: matches.length,
       // Do not reproduce scanner secrets or matched code in terminal output.
       rules: [...new Set(matches.map(item => item.RuleID).filter(Boolean))].sort() };
