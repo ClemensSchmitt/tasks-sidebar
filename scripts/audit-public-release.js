@@ -167,11 +167,12 @@ function main(args) {
   const png = fs.existsSync(path.join(ROOT, 'resources', 'marketplace-icon.png'))
     ? pngMetadata(fs.readFileSync(path.join(ROOT, 'resources', 'marketplace-icon.png'))) : ['missing-icon'];
   const artifacts = vsixFiles.map(inspectArtifact);
-  const status = findings.findings.length || gitleaks.status !== 'OK' || png.length
+  const status = findings.findings.length || findings.binaryBlobsSkipped > 0 || gitleaks.status !== 'OK' || png.length
     || artifacts.length === 0 || artifacts.some(a => a.result !== 'OK') ? 'NO-GO' : 'TECHNICAL_CHECKS_PASSED';
   const report = { status, checkedGitRefs: 'all locally fetched refs (--all)',
     history: findings, secretScanner: gitleaks,
     marketplaceIconMetadata: png.map(type => ({ type })),
+    note: 'Historic binary Git blobs require separate metadata/visual assessment; skipped binaries prevent technical pass.',
     artifacts: artifacts.length ? artifacts : [{ result: 'NOT_CHECKED', reason: 'No existing VSIX supplied' }],
     limitations: [
       'This check cannot grant copyright, employer or privacy approval.',
