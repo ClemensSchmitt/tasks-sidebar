@@ -60,6 +60,45 @@ jobs:
             echo "$tag VSIX downloaded"
           done
 
+      - name: Inspect GitHub issue attachment availability
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/issue-attachments"
+          {
+            gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/issues?state=all&per_page=100"
+            gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/issues/comments?per_page=100"
+            gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/pulls/comments?per_page=100"
+          } | grep -oE 'https://github.com/user-attachments/assets/[a-zA-Z0-9-]+' | sort -u             > "$RUNNER_TEMP/attachment-urls.txt" || true
+          count=0
+          downloaded=0
+          unavailable=0
+          while IFS= read -r attachment; do
+            test -n "$attachment" || continue
+            count=$((count+1))
+            destination="$RUNNER_TEMP/issue-attachments/attachment-$count.bin"
+            if curl --fail --location --silent --show-error --proto '=https'               --proto-redir '=https' --max-time 30 --max-filesize 15000000               -o "$destination" "$attachment"; then
+              downloaded=$((downloaded+1))
+              file --mime-type --brief "$destination" || true
+            else
+              rm -f "$destination"
+              unavailable=$((unavailable+1))
+            fi
+          done < "$RUNNER_TEMP/attachment-urls.txt"
+          echo "Referenced issue attachments: $count; downloaded: $downloaded; unavailable: $unavailable"
+          test "$unavailable" -eq 0 || echo "::warning::Some GitHub attachments require separate inspection"
+
+      - name: Upload retrieved images for private review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-101-issue-attachments
+          path: ${{ runner.temp }}/issue-attachments/
+          if-no-files-found: warn
+          retention-days: 1
+
       - name: Read-only full-history and existing VSIX audit
         shell: bash
         run: |
@@ -68,8 +107,10 @@ jobs:
           args=()
           for package in "${packages[@]}"; do args+=(--vsix "$package"); done
           # The script only prints rule names/object hashes, not secret values.
-          node scripts/audit-public-release.js "${args[@]}" > "$RUNNER_TEMP/public-audit.json"
-          cat "$RUNNER_TEMP/public-audit.json"
+          result=0
+          node scripts/audit-public-release.js "${args[@]}" > "$RUNNER_TEMP/public-audit.json" || result=$?
+          jq '{status, history: (.history | {totalObjects, textBlobsScanned, pngBlobsInspected, binaryBlobsSkipped, findingCount:(.findings|length)}), secretScanner, artifacts: [.artifacts[] | {artifact, result, fileCount, structure}]}' "$RUNNER_TEMP/public-audit.json"
+          exit "$result"
 
       - name: Upload redacted audit summary
         if: always()
