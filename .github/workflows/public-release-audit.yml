@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 concurrency:
   group: public-audit-${{ github.ref }}
@@ -76,7 +78,8 @@ jobs:
           } | grep -oE 'https://github.com/user-attachments/assets/[a-zA-Z0-9-]+' | sort -u             > "$RUNNER_TEMP/attachment-urls.txt" || true
           found=$(wc -l < "$RUNNER_TEMP/attachment-urls.txt")
           if test "$found" -lt 5; then
-            echo "::warning::Expected at least 5 documented issue attachments, discovered $found"
+            echo "::error::Expected at least 5 documented issue attachments, discovered $found"
+            exit 1
           fi
           count=0
           downloaded=0
