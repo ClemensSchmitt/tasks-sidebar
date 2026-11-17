@@ -8,7 +8,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { TextDecoder } = require('node:util');
-const { inspectVsix, readZipEntry } = require('./release');
+const { inspectVsix, listZipEntries, readZipEntry } = require('./release');
 
 const ROOT = path.resolve(__dirname, '..');
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
@@ -50,6 +50,7 @@ function inspectHistory() {
   const findings = [];
   let scanned = 0;
   let skippedBinary = 0;
+  let pngBlobsInspected = 0;
   let oversized = 0;
   for (const line of checked.trim().split(/\r?\n/)) {
     const match = /^([0-9a-f]{40,64}) blob (\d+)$/.exec(line);
@@ -65,14 +66,22 @@ function inspectHistory() {
     });
     let text;
     try { text = decoder.decode(buffer); }
-    catch { skippedBinary++; continue; }
+    catch {
+      if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) {
+        pngBlobsInspected++;
+        for (const rule of pngMetadata(buffer)) findings.push({ source: name, sha, rule: 'png-metadata-' + rule });
+        continue;
+      }
+      skippedBinary++;
+      continue;
+    }
     if (text.includes('\0')) { skippedBinary++; continue; }
     scanned++;
     const matches = [];
     findingsIn(name, text, matches);
     for (const item of matches) findings.push({ ...item, sha });
   }
-  return { totalObjects: objects.size, textBlobsScanned: scanned, binaryBlobsSkipped: skippedBinary,
+  return { totalObjects: objects.size, textBlobsScanned: scanned, pngBlobsInspected, binaryBlobsSkipped: skippedBinary,
     oversizedBlobs: oversized, findings };
 }
 
@@ -126,10 +135,18 @@ function inspectArtifact(file) {
     sha256: crypto.createHash('sha256').update(zip).digest('hex'),
     result: 'OK', problems: [] };
   try {
-    const inspected = inspectVsix(file);
-    summary.version = inspected.version;
-    summary.fileCount = inspected.entryCount;
-    for (const filename of inspected.files) {
+    const entries = listZipEntries(zip);
+    summary.fileCount = entries.length;
+    try {
+      const inspected = inspectVsix(file);
+      summary.version = inspected.version;
+      summary.structure = 'CURRENT';
+    } catch {
+      // An older release may predate the current required-file contract.
+      // Still inspect every archive entry rather than declaring the ZIP uninspected.
+      summary.structure = 'LEGACY_REVIEW';
+    }
+    for (const filename of entries) {
       if (suspiciousPath.test(filename)) summary.problems.push({ source: filename, rule: 'sensitive-path' });
       if (/\.png$/i.test(filename)) {
         for (const chunk of pngMetadata(readZipEntry(zip, filename))) {
@@ -151,6 +168,7 @@ function inspectArtifact(file) {
       }
     }
     if (summary.problems.length) summary.result = 'FINDINGS';
+    else if (summary.structure === 'LEGACY_REVIEW') summary.result = 'LEGACY_REVIEW';
   } catch (error) {
     summary.result = 'NOT_CHECKED';
     // Error descriptions from third-party artifacts can include paths; do not print the raw message.
@@ -178,7 +196,7 @@ function main(args) {
   const report = { status, checkedGitRefs: 'all locally fetched refs (--all)',
     history: findings, secretScanner: gitleaks,
     marketplaceIconMetadata: png.map(type => ({ type })),
-    note: 'Historic binary Git blobs require separate metadata/visual assessment; skipped binaries prevent technical pass.',
+    note: 'Git PNG blobs receive metadata-only inspection. All skipped unknown binaries and legacy package structure still require independent review.',
     artifacts: artifacts.length ? artifacts : [{ result: 'NOT_CHECKED', reason: 'No existing VSIX supplied' }],
     limitations: [
       'This check cannot grant copyright, employer or privacy approval.',
