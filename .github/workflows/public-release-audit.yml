@@ -88,9 +88,21 @@ jobs:
             test -n "$attachment" || continue
             count=$((count+1))
             destination="$RUNNER_TEMP/issue-attachments/attachment-$count.bin"
-            if curl --fail --location --silent --show-error --proto '=https'               --proto-redir '=https' --max-time 30 --max-filesize 15000000               -o "$destination" "$attachment"; then
+            headers="$RUNNER_TEMP/issue-attachments/headers-$count"
+            status=$(curl --silent --show-error --proto '=https' --max-time 30               --max-redirs 0 --max-filesize 15000000               --header "Authorization: Bearer $GH_TOKEN"               --dump-header "$headers" --output "$destination"               --write-out '%{http_code}' "$attachment") || status=000
+            if [[ "$status" =~ ^30[12378]$ ]]; then
+              redirect=$(awk 'tolower($1) == "location:" {print $2}' "$headers" | tail -1 | tr -d '\r')
+              if [[ "$redirect" == https://* ]]; then
+                curl --fail --location --silent --show-error --proto '=https'                   --proto-redir '=https' --max-time 30 --max-filesize 15000000                   --output "$destination" "$redirect" && status=200 || status=000
+              else
+                status=000
+              fi
+            fi
+            rm -f "$headers"
+            mime=$(file --mime-type --brief "$destination" 2>/dev/null || true)
+            if [[ "$status" == 200 && "$mime" == image/* ]]; then
               downloaded=$((downloaded+1))
-              file --mime-type --brief "$destination" || true
+              echo "$mime"
             else
               rm -f "$destination"
               unavailable=$((unavailable+1))
