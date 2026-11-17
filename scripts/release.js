@@ -271,4 +271,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { bump, bumpVersion, inspectVsix, readManifests, verify, verifyVsix };
+module.exports = { bump, bumpVersion, inspectVsix, readZipEntry, readManifests, verify, verifyVsix };
