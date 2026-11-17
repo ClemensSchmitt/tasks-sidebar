@@ -68,10 +68,16 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/issue-attachments"
           {
-            gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/issues?state=all&per_page=100"
+            for number in 69 70 71 95 100; do
+              gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq '.body'
+            done
             gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/issues/comments?per_page=100"
             gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/pulls/comments?per_page=100"
           } | grep -oE 'https://github.com/user-attachments/assets/[a-zA-Z0-9-]+' | sort -u             > "$RUNNER_TEMP/attachment-urls.txt" || true
+          found=$(wc -l < "$RUNNER_TEMP/attachment-urls.txt")
+          if test "$found" -lt 5; then
+            echo "::warning::Expected at least 5 documented issue attachments, discovered $found"
+          fi
           count=0
           downloaded=0
           unavailable=0
