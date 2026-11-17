@@ -5,6 +5,47 @@ a reproducible technical checklist, **not a declaration that publication is safe
 The authoritative issue is [#101](https://github.com/ClemensSchmitt/tasks-sidebar/issues/101);
 the public-marketplace rollout is blocked by [#24](https://github.com/ClemensSchmitt/tasks-sidebar/issues/24).
 
+## Executed full-history and historical-release scan (17 November 2026)
+
+**Evidence:** [GitHub Actions read-only audit run #44044078271](https://github.com/ClemensSchmitt/tasks-sidebar/actions/runs/44044078271);
+one-day-retention artifact `issue-101-redacted-audit`. The audit ran on the
+private GitHub runner, with a complete Git checkout, explicitly fetched heads
+and tags, checksum-verified **Gitleaks v8.30.1**, and the six **existing**
+GitHub Release VSIX assets. **No compilation, application build, release,
+publishing, tag change or history rewrite was performed.**
+
+| Scope | Verified result |
+| --- | --- |
+| Reachable objects at audited PR commit | 1,165 objects; 315 UTF-8 text blobs inspected; one historical PNG inspected for metadata; zero unscanned binary or oversized blobs |
+| Gitleaks (`--all`, redacted report) | **0 findings** from that scanner, not a guarantee of absence of any secrets |
+| Content/path heuristics | Three historical blob versions of `CLOUD_PROJECT_HANDOFF.md`, each with a personal-home-path match; **not removed from reachability** |
+| Image metadata | No detected PNG metadata chunks in the source icon or historical PNG blob |
+| GitHub issue screenshot links | 5 issue attachment links discovered (#69, #70, #71, #95, #100); download failed with HTTP 404 even with GitHub Actions permissions + authenticated first request. **Contents NOT CHECKED.** |
+| GitHub repository Secret Scanning / Push Protection alerts | **NOT CHECKED** through the available connection; a repository security administrator must inspect in GitHub |
+
+### Actual GitHub Release VSIX checks
+
+| Existing release | File entries | SHA-256 | Archive content result |
+| --- | ---: | --- | --- |
+| v0.0.5 | 9 | `6576875aadcb92354f43007fcd4cfeb8bab878294a86c3a8d72b8da615840b0b` | All entries content-scanned without findings; **LEGACY_REVIEW** because it predates the current package-structure contract |
+| v0.0.6 | 11 | `acfec8e5933d257073fa734eefea197f0a040d47b32be53dfdacdea40a23e807` | OK |
+| v0.0.7 | 25 | `461e47cea00196b491b4d16d43a15625dc95c759dfe5a2846a8bccff1c8af201` | OK |
+| v0.0.8 | 25 | `27c72893c9efa570fe2b270e65d70ec94e53bee6eb671f1d303084d8ab6d1a91` | OK |
+| v0.0.9 | 25 | `43d73ac4843b7262ef292f967fdfa3bf3f54822a872e150e04977adb8490ab39` | OK |
+| v0.1.0 | 33 | `d3f7528e0205b8711ad33d9a0e5c743fda481df3aac9d7a94899d55e35af1358` | OK |
+
+**Interpretation:** The six distributable VSIX archives have now been
+downloaded and content-scanned; the newest five also passed the current VSIX
+structural contract. The oldest archive is technically readable but needs
+human acknowledgement of its older layout. A **NO-GO** remains due to the
+reachable handoff-file versions, the inaccessible screenshot contents,
+rights/ownership questions, non-public support links, GitHub alert visibility,
+and missing independent release authorization.
+
+The temporary audit workflow has been changed to **manual dispatch** to avoid
+repeating expensive scans for ordinary pushes. This audit can be manually
+re-run after the workflow exists on the default branch.
+
 ## Current evidence
 
 - Baseline reviewed: `main` at `5bcfe126a149bc875dff8f60bd5b987e9846de7e`.
@@ -30,8 +71,8 @@ the public-marketplace rollout is blocked by [#24](https://github.com/ClemensSch
   Package metadata does **not** prove ownership of first-party code, manuals
   or graphics.
 - Existing `.vscodeignore` and `scripts/release.js` enforce expected
-  package paths and exclusions on newly verified VSIX files, but the **actual**
-  ZIP contents of existing releases have not been retrieved and inspected.
+  package paths and exclusions on newly verified VSIX files. The six **actual**
+  release VSIX archives have now been inspected (results above).
 - Both the Marketplace manifest's issue URL and the support instructions
   currently point to this private repository, so they are not usable by
   ordinary Marketplace customers.
@@ -79,8 +120,8 @@ a legal/privacy approval, and must not be interpreted as permission to publish.
 
 | Priority | Item | Owner / completion evidence |
 | --- | --- | --- |
-| **Blocker for public repository** | Analyze sensitive historical handoff blob and all old branches/tags with complete authorized Gitleaks + file review; decide whether history rewrite is needed. | Maintainer/security reviewer: scanner output summarized **without secrets**, documented disposition. Any history rewrite, tag move, release deletion or force-push requires **separate explicit authorization** and impact analysis. |
-| **Blocker** | Inspect the actual six historical VSIX ZIPs and metadata of icon/attachments, including issues #69, #70, #71, #95, #100. | Technical reviewer: artifact hashes, archive lists, findings; redact before commenting. |
+| **Blocker for public repository** | Historical handoff copies are confirmed in full-reachability scan; determine risk disposition and whether authorized history rewrite is necessary. | Maintainer/security reviewer: scanner output summarized **without secrets**, documented disposition. Any history rewrite, tag move, release deletion or force-push requires **separate explicit authorization** and impact analysis. |
+| **Blocker** | The six VSIX archives were inspected (see table). Screenshot attachments in #69, #70, #71, #95 and #100 remain uninspected (HTTP 404); obtain authorized access and review. | Technical reviewer: artifact hashes, archive lists, findings; redact before commenting. |
 | **Blocker** | Decide the distribution model. **A:** after safe history/legal audit, make the repository public and verify all referenced links. **B:** keep the repository private and provide independently public, working docs and bug-report intake; replace private `homepage`, `bugs.url` and relevant README/SUPPORT links with verified public URLs. | Owner: explicit A/B decision and live verification of links from an unauthenticated browser session. |
 | **Blocker** | Establish rights to all code/documentation and SVG/PNG assets. The PNG was introduced as an icon based on the existing task-list visual in PR #29, which does **not** independently prove rights. | Owner/authorized employer or rights holder: positive permission/ownership decision recorded. |
 | **Blocker** | Check GitHub Secret Scanning/Push Protection and alerts, PR review submissions, historic logs, issues/PRs and binary screenshots for sensitive data. | Repo administrator/security reviewer: evidence for each checked surface; treat missing access as **NOT CHECKED**. |
