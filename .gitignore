@@ -3,3 +3,20 @@ out/
 *.vsix
 .vscode-test/
 vsix-install-probe.json
+
+# Local/private handoff notes and credential material
+CLOUD_PROJECT_HANDOFF.md
+.env
+.env.*
+**/.env
+**/.env.*
+.npmrc
+**/.npmrc
+.pypirc
+**/.pypirc
+*.pem
+*.key
+*.p12
+*.pfx
+**/id_rsa*
+**/id_ed25519*
