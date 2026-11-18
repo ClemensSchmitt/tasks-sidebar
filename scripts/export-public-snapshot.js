@@ -29,7 +29,7 @@ function assert(ok, why) { if (!ok) throw Error(why); }
 function transform(name, text) {
   if (name === '.gitignore' || name === '.vscodeignore') {
     text = text.split('\n').filter(line =>
-      line !== 'CLOUD_PROJECT_HANDOFF.md' && line !== 'docs/public-release-audit.md').join('\n');
+      line !== 'CLOUD_PROJECT_HANDOFF.md' && line !== 'docs/public-release-audit.md' && line !== 'docs/public-repository-migration.md').join('\n');
   }
   if (name === 'package.json') {
     const json = JSON.parse(text);
