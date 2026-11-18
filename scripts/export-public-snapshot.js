@@ -15,8 +15,9 @@ const explicit = new Set([
   'scripts/release.js', 'scripts/test-installed-vsix.js'
 ]);
 const allow = p => explicit.has(p) || /^src\/[\w/-]+\.ts$/.test(p) ||
-  (/^docs\/manual\/[\w.-]+\.md$/.test(p) && p !== 'docs/manual/coverage-matrix.md') ||
-  (/^test\/[\w./-]+$/.test(p) && /\.(?:js|json|md|code-workspace)$/.test(p));
+  /^docs\/manual\/[\w.-]+\.md$/.test(p) ||
+  (/^test\/[\w./-]+$/.test(p) && /\.(?:js|json|md|code-workspace)$/.test(p)) ||
+  p === 'test/manual-release/fixtures/no-tasks/.gitkeep';
 const checks = [
   ['local user path', /(?:[A-Z]:\\Users\\[^\\\s"']+\\|\/(?:home|Users)\/[^/\s"']+\/)/i],
   ['specific internal company', /Vanderlande|Casaventa|Toyota Automated Logistics/i],
@@ -26,6 +27,10 @@ const checks = [
 ];
 function assert(ok, why) { if (!ok) throw Error(why); }
 function transform(name, text) {
+  if (name === '.gitignore' || name === '.vscodeignore') {
+    text = text.split('\n').filter(line =>
+      line !== 'CLOUD_PROJECT_HANDOFF.md' && line !== 'docs/public-release-audit.md').join('\n');
+  }
   if (name === 'package.json') {
     const json = JSON.parse(text);
     assert(json.name === 'tasks-sidebar', 'Invalid extension identity');
