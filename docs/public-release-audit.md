@@ -1,5 +1,8 @@
 # Public-release security and rights audit (Issue #101)
 
+> **Decision update (18 November 2026):** The **existing** development repository remains private. A different, newly initialized public repo `ClemensSchmitt/tasks-sidebar-vscode` will contain only a vetted source snapshot and a **fresh Git history**. Historical findings documented below apply to the **private original**, not automatically to the clean public snapshot. They no longer require a history rewrite for this distribution model. Publication still needs rights clearance, an independently reviewed snapshot, an actually created public repository and human release authorization. See [the migration plan](public-repository-migration.md).
+
+
 **Status: NO-GO as of 2026-11-17.** The repository is private. This document is
 a reproducible technical checklist, **not a declaration that publication is safe**.
 The authoritative issue is [#101](https://github.com/ClemensSchmitt/tasks-sidebar/issues/101);
