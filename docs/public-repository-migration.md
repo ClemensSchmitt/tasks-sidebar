@@ -114,3 +114,11 @@ GitHub source history and Marketplace publisher identity are separate.
 **No-build condition:** Preparing the snapshot and its initial empty public
 repository does not require VSIX builds or a release. No GitHub or Marketplace
 publication is automatically initiated by PR #102.
+
+## Executed snapshot evidence (18 November 2026)
+
+- Successful [no-build export run #44339201812](https://github.com/ClemensSchmitt/tasks-sidebar/actions/runs/44339201812) produced a private Actions artifact `public-source-snapshot-no-history`.
+- **59 files** in the downloaded ZIP; source, tests, complete manual including coverage matrix, no-tasks test fixture, MIT license, metadata and icons.
+- Verified independently by inspecting the ZIP entry names and text: **no `.git` or `.github` directory, no old repository URL, no private handoff/audit/migration files, and no broken relative Markdown documentation links**.
+- Package metadata points to `ClemensSchmitt/tasks-sidebar-vscode`. New `SECURITY.md` and `PUBLICATION.md` are present. Source has not been compiled or repackaged as VSIX.
+- Artifact retention is **seven days**; rerun the exporter from the reviewed private revision to refresh it when required. This ZIP is an intermediate handoff, not a published release.
