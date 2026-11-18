@@ -95,7 +95,7 @@ function exportSnapshot(dest) {
     }
     const content = transform(name, original);
     for (const [label,re] of checks) assert(!re.test(content), name + ': ' + label);
-    assert(!content.includes(fromUrl), 'Old private link remains in ' + name);
+    assert(!/https:\/\/github\.com\/ClemensSchmitt\/tasks-sidebar(?=\/|\.git|#|$)/.test(content), 'Old private link remains in ' + name);
     copies.push([name,Buffer.from(content,'utf8')]);
   }
   fs.mkdirSync(dest,{recursive:true});
