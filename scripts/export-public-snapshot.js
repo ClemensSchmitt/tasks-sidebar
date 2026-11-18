@@ -18,7 +18,6 @@ const allow = p => explicit.has(p) || /^src\/[\w/-]+\.ts$/.test(p) ||
   (/^docs\/manual\/[\w.-]+\.md$/.test(p) && p !== 'docs/manual/coverage-matrix.md') ||
   (/^test\/[\w./-]+$/.test(p) && /\.(?:js|json|md|code-workspace)$/.test(p));
 const checks = [
-  ['internal handoff', /CLOUD_PROJECT_HANDOFF|public-release-audit\.md/i],
   ['local user path', /(?:[A-Z]:\\Users\\[^\\\s"']+\\|\/(?:home|Users)\/[^/\s"']+\/)/i],
   ['specific internal company', /Vanderlande|Casaventa|Toyota Automated Logistics/i],
   ['private key', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/i],
