@@ -1,0 +1,58 @@
+name: Prepare public source snapshot (no build)
+
+on:
+  push:
+    branches:
+      - audit/issue-101-publication-hygiene
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-source-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  export-clean-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout only current source (not historical refs)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Export allowlisted files and rewrite public links
+        shell: bash
+        run: node scripts/export-public-snapshot.js --dest "$RUNNER_TEMP/public-source-snapshot"
+
+      - name: Verify exported file layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="$RUNNER_TEMP/public-source-snapshot"
+          test -f "$dest/package.json"
+          test -f "$dest/LICENSE"
+          test -f "$dest/src/extension.ts"
+          test -f "$dest/SECURITY.md"
+          test ! -e "$dest/.git"
+          test ! -e "$dest/.github"
+          test ! -e "$dest/CLOUD_PROJECT_HANDOFF.md"
+          test ! -e "$dest/docs/public-release-audit.md"
+          test ! -e "$dest/scripts/export-public-snapshot.js"
+          if grep -R -I -F 'github.com/ClemensSchmitt/tasks-sidebar/' "$dest"; then
+            echo "::error::Reference to old private repository remains"
+            exit 1
+          fi
+          echo "File count: $(find "$dest" -type f | wc -l)"
+          echo "Manifest public repository:"
+          node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).repository.url)' "$dest/package.json"
+
+      - name: Save source-only artifact for initial commit into a NEW repo
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-source-snapshot-no-history
+          path: ${{ runner.temp }}/public-source-snapshot/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
