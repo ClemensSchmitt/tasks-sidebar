@@ -122,3 +122,5 @@ publication is automatically initiated by PR #102.
 - Verified independently by inspecting the ZIP entry names and text: **no `.git` or `.github` directory, no old repository URL, no private handoff/audit/migration files, and no broken relative Markdown documentation links**.
 - Package metadata points to `ClemensSchmitt/tasks-sidebar-vscode`. New `SECURITY.md` and `PUBLICATION.md` are present. Source has not been compiled or repackaged as VSIX.
 - Artifact retention is **seven days**; rerun the exporter from the reviewed private revision to refresh it when required. This ZIP is an intermediate handoff, not a published release.
+
+**Latest verified handoff:** [successful export run #44339840128](https://github.com/ClemensSchmitt/tasks-sidebar/actions/runs/44339840128), artifact `public-source-snapshot-no-history` (7-day retention). Downloaded ZIP: SHA-256 `71af09f2c7f33e45549d5ee1779456beb2593e86d28ddd875e12e2c5b7952580`; **59 files**, required tests/manuals present, no `.git`, no `.github`, no old repo URLs and no internal audit material. The export workflow is now **manual-only**; no default CI or extension build is part of this handoff.
