@@ -1,9 +1,7 @@
 name: Prepare public source snapshot (no build)
 
 on:
-  push:
-    branches:
-      - audit/issue-101-publication-hygiene
+  workflow_dispatch:
 
 permissions:
   contents: read
