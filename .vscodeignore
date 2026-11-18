@@ -30,6 +30,7 @@ node_modules/**
 CLOUD_PROJECT_HANDOFF.md
 RELEASING.md
 docs/public-release-audit.md
+docs/public-repository-migration.md
 tsconfig.json
 package-lock.json
 *.tsbuildinfo
