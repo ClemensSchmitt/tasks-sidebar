@@ -15,7 +15,7 @@ Remove credentials, tokens, environment-variable values, private file paths, cus
 
 ## Support availability
 
-The GitHub repository and issue tracker are private at present. The issue link works for repository users, but external users cannot submit reports until the repository is made public. No public support email or Marketplace listing has been configured, so this project currently has no public issue-submission channel.
+Use the public [GitHub issue tracker](https://github.com/ClemensSchmitt/tasks-sidebar/issues) for bug reports.
 
 The current code documents WSL, Dev Containers, and Remote SSH as best effort, not certified support. Local Windows, macOS, and Linux are covered by the automated CI matrix on VS Code 1.85.0 and stable. See [Compatibility and remote behavior](README.md#compatibility-and-remote-behavior).
 

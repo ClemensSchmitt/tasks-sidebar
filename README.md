@@ -1,106 +1,115 @@
-# Tasks Sidebar
+<p align="center">
+  <img src="resources/marketplace-icon.png" width="96" height="96" alt="Tasks Sidebar icon">
+</p>
 
-A visual VS Code task board for tasks defined in `.vscode/tasks.json`.
+<h1 align="center">Tasks Sidebar</h1>
 
-For complete product behavior, edge cases and troubleshooting, see the **[Tasks Sidebar handbook](docs/manual/README.md)**.
+<p align="center"><strong>A task board for your VS Code workspace.</strong></p>
 
-## Install
+<p align="center">
+  Run builds, tests, and dev servers from the sidebar. See what is running, what failed, and how long the last successful run took.
+</p>
 
-Tasks Sidebar requires Visual Studio Code 1.85 or newer. Download the [latest published Tasks Sidebar VSIX from GitHub Releases](https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest), then in VS Code open **Extensions: Install from VSIX...** from the Extensions view's `...` menu and select the downloaded `.vsix`.
+<p align="center">
+  <a href="https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest"><strong>Download the latest VSIX</strong></a>
+  · <a href="docs/manual/README.md">Read the handbook</a>
+  · <a href="https://github.com/ClemensSchmitt/tasks-sidebar/issues">Report an issue</a>
+</p>
 
-There is no Visual Studio Code Marketplace listing yet.
+<p align="center">
+  <img src="docs/images/tasks-board.png" width="400" alt="Tasks Sidebar in VS Code showing four tasks, tag badges, run status, last successful durations, and progress estimates">
+</p>
 
-## Getting started
+## What you can do
 
-Add a task to `.vscode/tasks.json` in your workspace:
+| | |
+| --- | --- |
+| **Run tasks from the sidebar** | Start, stop, and restart the tasks already defined in your VS Code workspace. |
+| **See how a run is going** | Check status and elapsed time. The last successful run gives the progress bar a time estimate. |
+| **Find a task quickly** | Search by name, provider, group, folder, or tags. Filter by status or switch on regex search. |
+| **Keep frequent tasks within reach** | Drag cards into your preferred order or move them with the keyboard. The order is saved per workspace. |
+| **Manage tasks where you run them** | Jump to a task's JSON definition or create a shell task for a folder or saved workspace. |
+
+## Install and run your first task
+
+Requires **VS Code 1.85 or newer**.
+
+1. Download the `.vsix` from the [latest GitHub release](https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest).
+2. In VS Code, open the Extensions view and choose **Install from VSIX…** from the **…** menu.
+3. Open a workspace with a `.vscode/tasks.json` file, select **Tasks** in the Activity Bar, and press **▶** on a task card.
+
+### How tasks.json works
+
+VS Code reads workspace tasks from `.vscode/tasks.json`. The file declares `"version": "2.0.0"` and a `tasks` array. Each entry has a `label` for its display name, a `type` such as `shell`, and the `command` and `args` to run. Tasks Sidebar adds an optional `tags` array for search and filtering. See the [VS Code guide to custom tasks](https://code.visualstudio.com/docs/debugtest/tasks#custom-tasks).
+
+<details>
+<summary>Copy the demo tasks.json from the screenshots</summary>
+
+Save this as `.vscode/tasks.json` in a fresh workspace, or add the four entries to your existing `tasks` array. The demo uses Windows PowerShell to simulate task durations from 30 seconds to five minutes.
 
 ```json
 {
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Example: Say hello",
+      "label": "TypeScript type check",
+      "tags": ["typescript", "quality"],
       "type": "shell",
-      "command": "echo Hello from Tasks Sidebar",
-      "problemMatcher": []
+      "command": "powershell",
+      "args": ["-NoProfile", "-Command", "Start-Sleep -Seconds 30"]
+    },
+    {
+      "label": "API & worker unit tests",
+      "tags": ["test", "api", "worker"],
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-Command", "Start-Sleep -Seconds 60"]
+    },
+    {
+      "label": "API integration tests",
+      "tags": ["test", "api", "integration"],
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-Command", "Start-Sleep -Seconds 120"]
+    },
+    {
+      "label": "Build backend packages",
+      "tags": ["build", "api", "worker"],
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-Command", "Start-Sleep -Seconds 300"]
     }
   ]
 }
 ```
 
-Task discovery starts after VS Code startup, even if the sidebar stays closed.
-Opening the **Tasks** activity-bar view shows already discovered tasks without requiring an initial manual Refresh. Select the play button on the task card to run it and the stop button to request a stop. If the task list is not current, run **Tasks: Refresh** from the Command Palette. VS Code's normal task configuration rules still apply; see the [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks).
+</details>
 
-## Commands and configuration
+The board discovers workspace tasks automatically. Use **Tasks: Refresh** if the list is out of date. To show npm and other external task providers, run **Tasks: Toggle external task providers** or enable `tasksSidebar.includeExternalTasks`. Task output stays in VS Code's Terminal and Output panels.
 
-| Command Palette command | Action |
+## The sidebar in action
+
+| Filter by tags | Reorder task cards |
 | --- | --- |
-| `Tasks: Refresh` | Refresh task discovery and the board. |
-| `Tasks: Open tasks.json` | Open the selected workspace task definition. |
-| `Tasks: Create task` | Create a shell task in a folder or the entire saved workspace. |
-| `Tasks: Toggle external task providers` | Toggle visibility of tasks from external providers for this workspace. |
+| <img src="docs/images/tag-filter.png" width="340" alt="Tags menu open with the api tag selected"><br>Select tags to show tasks that match all of them. | <img src="docs/images/custom-order.png" width="340" alt="Build backend packages card highlighted while being dragged into a new position"><br>Drag cards into your preferred order. Tasks Sidebar saves it per workspace. |
 
-The `tasksSidebar.includeExternalTasks` setting defaults to `false`. When enabled, npm, user, extension, and other external providers can appear in the board.
-
-## Features
-
-- Run, stop and safely restart individual task executions
-- Smooth runtime progress with a plan based on the latest successful run
-- Running, stopping, waiting-for-end, failed, cancelled, unknown and stale states
-- Search by task name, provider, group, workspace folder or tags
-- Assign multiple tags in `tasks.json` (for example, `"tags": ["tag1", "tag2"]`) and filter by all selected tags (AND) using a floating multi-select Tags dropdown (five visible options, scrollable for more)
-- Optional `.*` toggle inside search: JavaScript regular expressions (case-insensitive); invalid patterns show inline feedback without replacing the previous results
-- Deterministic filters for running, failed, completed, unknown/stale and external tasks
-- Deterministic sorting by name, status, elapsed time or folder
-- Custom drag-and-drop ordering of task cards, saved per workspace; keyboard Move up/Move down actions are available
-- Edit `tasks.json`, or create a shell task through the board
-- Version, available task count and provider labels are visible in the sidebar
-- English-only UI with keyboard focus, screen-reader labels and reduced-motion support
-
-## Task discovery and provider policy
-
-The extension uses the official `vscode.tasks.fetchTasks()` API and does not use mock data. By default it keeps folder tasks from `.vscode/tasks.json` and workspace-scoped shell/process tasks from the active `.code-workspace` file. npm, user, extension and other external providers are opt-in through `Tasks: Toggle external task providers` or `tasksSidebar.includeExternalTasks`. If aggregate discovery fails, the extension retries provider types declared in workspace task files and keeps any results it can recover, while showing a warning.
-
-The provider/source is always shown. If two providers expose the same display name, they remain distinct when their source or definition differs. Exact duplicate logical definitions are rendered once; parallel `TaskExecution` instances are still represented separately. This avoids duplicate cards without hiding real parallel runs.
-
-The board does not provide toolbar buttons for task output or terminal focus. Use VS Code's Output and Terminal panels directly; the task API does not expose a task-specific output or terminal handle.
-
-## Runtime safety
-
-- Parent and child executions are shown as related task cards. Stopping a parent stops only the selected parent execution; children are not implicitly terminated because VS Code owns compound-task orchestration.
-- Sequential dependencies are evaluated in declared order; a later dependency cannot be considered satisfied while an earlier dependency is running, unresolved, failed or unknown. Parallel dependencies are aggregated independently.
-- Parent and child task histories keep separate logical identities and duration samples; compound execution time is never merged into an equivalent user-run sample.
-- Each concrete execution receives its own runtime ID; parallel executions do not overwrite one another and can be stopped independently.
-- Runtime identity includes provider, display name, scope and definition. A rename or definition edit can orphan an old visible execution. History identity is separate: a rename with unchanged behavior keeps its plan, while a behavior change starts a new history.
-- Exit code `0` is success, a non-zero exit code is failure, a confirmed stop is cancellation. Missing process-end or exit-code evidence never becomes success.
-- Background/watch tasks remain visibly running. Lost end events or a stop without confirmation become stale after a bounded timeout; the extension does not claim the process was killed.
-- Restart is stop-then-start. A restart requested while stopping waits for the terminal event; a stale execution remains visible while a new execution may start. A failed or idle task starts directly.
-- Discovery, JSON, configuration, file, refresh and webview errors are caught. The last valid task list remains visible when possible and the sidebar offers Retry.
-
-## History, timing and progress
-
-- Elapsed time is monotonic host elapsed time. Suspend/resume time is intentionally counted as elapsed wall time; active CPU time is not claimed. Persisted wall-clock timestamps are metadata only.
-- The plan uses the latest successful measured duration. Failed, cancelled, unknown, stale and recovered runs remain visible but do not change the plan or display their attempted duration.
-- Up to 20 duration samples and 200 history records are retained.
-- Runtime uses a monotonic clock. Clock changes cannot create negative durations or make progress move backwards.
-- Reduced-motion preference disables non-essential animation and transitions; the progress state remains available as text and ARIA values.
+| Search with regex | Open your task file |
+| --- | --- |
+| <img src="docs/images/regex-search.png" width="340" alt="Search field with the dot-star regex toggle focused"><br>Use the `.*` toggle to search with a regular expression. | <img src="docs/images/edit-tasks.png" width="340" alt="Task Board toolbar with the pencil button focused"><br>Use the pencil in the toolbar to open the workspace task file. |
 
 ## Compatibility and remote behavior
 
-| Host class | Support level | Validation status |
-| --- | --- | --- |
-| Local Windows, macOS and Linux workspaces | Supported | CI runs source-based Extension Host tests and installed-VSIX probes on each OS with VS Code 1.85.0 and Stable. |
-| WSL | Best effort; not certified | Not run for this change. |
-| Dev Containers | Best effort; not certified | Not run for this change. |
-| Remote SSH | Best effort; not certified | Not run for this change. |
+Local Windows, macOS, and Linux are covered by CI on VS Code 1.85.0 and Stable. WSL, Dev Containers, and Remote SSH are best effort. See the [compatibility guide](docs/manual/11-compatibility-remote.md) for details.
 
-The CI Linux jobs run a local Linux Extension Host; they do not certify WSL, a Dev Container or Remote SSH. Each remote host class must be checked and recorded separately before it is described as validated. The repeatable manual procedure and blank run record are in [the remote workspace smoke test](test/remote-smoke/README.md).
+## Documentation
 
-The extension declares `extensionKind: workspace`, so it runs in the extension host for the selected workspace. The board header shows the total number of available task definitions, independently of current search and filters. The host is still identified as `Local extension host` or `Remote · <name>` in provider and file error messages. WSL, Dev Container and SSH use VS Code's workspace task and URI-based file APIs, but their support remains best effort until the corresponding smoke run is recorded.
-
-After a reload or reconnect, executions that VS Code reports are restored. If an execution previously marked stale is reported again by the same extension host, the next reconciliation restores it to its active state before a new Start request is accepted. When no process-end event was observed, an unconfirmed stop request is cleared so the task can be stopped again; when process-end evidence exists, the stop intent is retained while the extension waits for task-end. A new Start request is blocked while that execution is reported. If VS Code no longer reports an observed execution, the extension eventually records it as unknown/stale; a lost connection alone is not treated as proof of success or a confirmed stop. Task files are read and edited through the selected workspace folder's VS Code APIs.
-
-VS Code 1.85.0 or newer is required by package metadata and an activation guard. Older versions receive an actionable error if the VSIX is installed manually. The user interface is currently English-only; translations are not included. Automated UI contract tests cover theme tokens, focus/reduced-motion hooks, labels and indeterminate progress semantics. Contrast and screen-reader behavior still need manual checks against representative VS Code themes and assistive technology.
+- [Discovery and task providers](docs/manual/02-discovery-providers-identities.md)
+- [Running, stopping, and restarting tasks](docs/manual/03-execution-lifecycle.md)
+- [Search, filters, tags, and sorting](docs/manual/05-search-filter-sort.md)
+- [History and progress estimates](docs/manual/06-history-progress-persistence.md)
+- [Commands, settings, and task files](docs/manual/07-commands-settings-tasks-json.md)
+- [Keyboard controls and accessibility](docs/manual/10-accessibility.md)
+- [Troubleshooting](docs/manual/09-troubleshooting.md)
 
 ## Development
 
@@ -108,31 +117,8 @@ VS Code 1.85.0 or newer is required by package metadata and an activation guard.
 npm install
 npm run check
 npm test
-npm run test:extension
-npm run package
-npm run test:vsix
 ```
 
-`npm run test:extension` launches a real VS Code Extension Development Host against a fixture workspace. CI runs it on Windows, macOS and Linux, on VS Code 1.85.0 and stable. Press `F5` to start an Extension Development Host; the view appears under the Tasks activity-bar icon. The suite also checks the generated sidebar controls, webview action routing and failure reporting; the runtime suite covers deterministic search, filter and sort behavior.
+Press **F5** to open an Extension Development Host. Run `npm run test:extension` for the Extension Host suite, or `npm run package` followed by `npm run test:vsix` to verify an installed VSIX.
 
-`npm run test:vsix` audits the generated VSIX, installs it with the VS Code CLI into fresh extension and user-data directories, then runs an Extension Host smoke test against that installed package. The test opens the Tasks Activity Bar view and checks activation and the refresh command. CI records the actual VS Code version and package file list in a `vsix-install-probe.json` artifact for each supported matrix entry.
-
-## Support and issues
-
-See [SUPPORT.md](SUPPORT.md) for bug-report instructions and useful diagnostic details. The GitHub [issue tracker](https://github.com/ClemensSchmitt/tasks-sidebar/issues) is currently available only to repository users because this repository is private; public users will need public repository access before they can report an issue there. No public Marketplace support channel is available yet.
-
-This project is distributed under the [MIT License](LICENSE). See the [changelog](CHANGELOG.md) for release history and unreleased changes.
-
-### Task output, terminals and editing
-
-The Task Board has no toolbar buttons for task output or terminal focus. Use VS Code's
-Output and Terminal panels directly. The [public VS Code API](https://code.visualstudio.com/api/references/vscode-api#TaskExecution)
-exposes a task and termination on TaskExecution, but no task-specific terminal or output
-handle, so Tasks Sidebar cannot target those surfaces for an individual task.
-
-**Edit** on a workspace task selects its unique definition in that folder's tasks.json or the active `.code-workspace` file (`tasks.tasks`),
-including JSONC files. Duplicate labels within one file, missing/renamed definitions,
-and external provider tasks produce a message instead of navigating to a guessed task.
-Navigation does not modify the file.
-
-**Create task** offers **Entire Workspace** in saved workspaces alongside folder targets. It appends a shell task while preserving JSONC comments and existing configuration. Save or revert unsaved changes first; invalid or ambiguous configuration is reported with the affected file URI.
+[Changelog](CHANGELOG.md) · [Support](SUPPORT.md) · [MIT License](LICENSE)
