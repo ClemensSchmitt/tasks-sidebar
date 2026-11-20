@@ -1,0 +1,141 @@
+name: One-time public-release audit (no build)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: public-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inspect-existing-material:
+    name: Inspect Git history and existing release VSIXs
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out full Git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all reachable heads and tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          echo "Refs: $(git for-each-ref --format='%(refname)' refs/remotes/origin refs/tags | wc -l)"
+          echo "Commits: $(git rev-list --all --count)"
+
+      - name: Install checksum-verified Gitleaks
+        shell: bash
+        env:
+          GITLEAKS_VERSION: '8.30.1'
+          GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --location --silent --show-error -o "$RUNNER_TEMP/$archive"             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$archive" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+          chmod 755 "$RUNNER_TEMP/gitleaks"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Download all six existing GitHub Release VSIX assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/existing-vsix"
+          for tag in v0.0.5 v0.0.6 v0.0.7 v0.0.8 v0.0.9 v0.1.0; do
+            mkdir -p "$RUNNER_TEMP/existing-vsix/$tag"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.vsix'               --dir "$RUNNER_TEMP/existing-vsix/$tag"
+            count=$(find "$RUNNER_TEMP/existing-vsix/$tag" -maxdepth 1 -type f -name '*.vsix' | wc -l)
+            test "$count" -eq 1 || { echo "::error::Expected exactly one VSIX for $tag"; exit 1; }
+            echo "$tag VSIX downloaded"
+          done
+
+      - name: Inspect GitHub issue attachment availability
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/issue-attachments"
+          {
+            for number in 69 70 71 95 100; do
+              gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq '.body'
+            done
+            gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/issues/comments?per_page=100"
+            gh api --paginate --jq '.[].body // empty'               "repos/$GITHUB_REPOSITORY/pulls/comments?per_page=100"
+          } | grep -oE 'https://github.com/user-attachments/assets/[a-zA-Z0-9-]+' | sort -u             > "$RUNNER_TEMP/attachment-urls.txt" || true
+          found=$(wc -l < "$RUNNER_TEMP/attachment-urls.txt")
+          if test "$found" -lt 5; then
+            echo "::error::Expected at least 5 documented issue attachments, discovered $found"
+            exit 1
+          fi
+          count=0
+          downloaded=0
+          unavailable=0
+          while IFS= read -r attachment; do
+            test -n "$attachment" || continue
+            count=$((count+1))
+            destination="$RUNNER_TEMP/issue-attachments/attachment-$count.bin"
+            headers="$RUNNER_TEMP/issue-attachments/headers-$count"
+            status=$(curl --silent --show-error --proto '=https' --max-time 30               --max-redirs 0 --max-filesize 15000000               --header "Authorization: Bearer $GH_TOKEN"               --dump-header "$headers" --output "$destination"               --write-out '%{http_code}' "$attachment") || status=000
+            if [[ "$status" =~ ^30[12378]$ ]]; then
+              redirect=$(awk 'tolower($1) == "location:" {print $2}' "$headers" | tail -1 | tr -d '\r')
+              if [[ "$redirect" == https://* ]]; then
+                curl --fail --location --silent --show-error --proto '=https'                   --proto-redir '=https' --max-time 30 --max-filesize 15000000                   --output "$destination" "$redirect" && status=200 || status=000
+              else
+                status=000
+              fi
+            fi
+            rm -f "$headers"
+            mime=$(file --mime-type --brief "$destination" 2>/dev/null || true)
+            if [[ "$status" == 200 && "$mime" == image/* ]]; then
+              downloaded=$((downloaded+1))
+              echo "$mime"
+            else
+              rm -f "$destination"
+              unavailable=$((unavailable+1))
+            fi
+          done < "$RUNNER_TEMP/attachment-urls.txt"
+          echo "Referenced issue attachments: $count; downloaded: $downloaded; unavailable: $unavailable"
+          test "$unavailable" -eq 0 || echo "::warning::Some GitHub attachments require separate inspection"
+
+      - name: Upload retrieved images for private review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-101-issue-attachments
+          path: ${{ runner.temp }}/issue-attachments/
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Read-only full-history and existing VSIX audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' packages < <(find "$RUNNER_TEMP/existing-vsix" -type f -name '*.vsix' -print0 | sort -z)
+          args=()
+          for package in "${packages[@]}"; do args+=(--vsix "$package"); done
+          # The script only prints rule names/object hashes, not secret values.
+          result=0
+          node scripts/audit-public-release.js "${args[@]}" > "$RUNNER_TEMP/public-audit.json" || result=$?
+          jq '{status, history: (.history | {totalObjects, textBlobsScanned, pngBlobsInspected, binaryBlobsSkipped, findingCount:(.findings|length)}), secretScanner, artifacts: [.artifacts[] | {artifact, result, fileCount, structure}]}' "$RUNNER_TEMP/public-audit.json"
+          exit "$result"
+
+      - name: Upload redacted audit summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-101-redacted-audit
+          path: ${{ runner.temp }}/public-audit.json
+          if-no-files-found: warn
+          retention-days: 1

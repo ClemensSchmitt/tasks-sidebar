@@ -29,6 +29,7 @@ node_modules/**
 **/*secret*
 CLOUD_PROJECT_HANDOFF.md
 RELEASING.md
+docs/public-release-audit.md
 tsconfig.json
 package-lock.json
 *.tsbuildinfo

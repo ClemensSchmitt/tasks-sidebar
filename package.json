@@ -82,7 +82,8 @@
     "test:extension": "npm run compile && node test/integration/run.js",
     "test:vsix": "node scripts/test-installed-vsix.js",
     "package": "npm run compile && npx --yes @vscode/vsce package",
-    "release:version": "node scripts/release.js"
+    "release:version": "node scripts/release.js",
+    "audit:public": "node scripts/audit-public-release.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
