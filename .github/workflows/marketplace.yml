@@ -1,0 +1,51 @@
+name: Publish to VS Code Marketplace
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: GitHub Release tag for the manually tested VSIX
+        required: true
+        type: string
+      sha256:
+        description: SHA-256 of the manually tested VSIX
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: marketplace-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download and verify the approved VSIX
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
+          vsix="tasks-sidebar-${RELEASE_TAG#v}.vsix"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$vsix"
+          printf '%s  %s\n' "${EXPECTED_SHA256,,}" "$vsix" | sha256sum --check --strict
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Publish the approved VSIX
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: npx --yes @vscode/vsce@4.1.1 publish --packagePath "tasks-sidebar-${RELEASE_TAG#v}.vsix" --oidc

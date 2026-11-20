@@ -74,3 +74,12 @@ The repository currently reports `main` as unprotected, so GitHub does not enfor
 A push of a `vX.Y.Z` tag starts the `Release` workflow, packages and verifies one VSIX, then runs all six release validation jobs against that exact candidate. It does not publish a GitHub Release. For a safe dry run, dispatch the `Release` workflow with that tag and leave `publish_release` false. To publish, dispatch it again for the same tag with `publish_release` set to true.
 
 The publishing job runs only after every validation job and VSIX verification succeed. It uses the artifact built by that same workflow run, checks that the tag still points to the tested commit, rejects an existing GitHub Release, and has the only `contents: write` permission. Its gate consists of the six `Release validation / <runner> · VS Code <version>` checks and `Package and verify VSIX`. The workflow never creates or moves tags.
+
+## Publish the verified VSIX to the Marketplace
+
+Configure Trusted Publishing under the ClemboMembo publisher for
+`ClemensSchmitt/tasks-sidebar` and `marketplace.yml`. Leave the environment
+field empty. After testing the GitHub Release VSIX in VS Code Stable, record
+its SHA-256. Run **Publish to VS Code Marketplace** from `main` with the
+release tag and that checksum. The workflow downloads the existing release
+asset and publishes it only if its checksum matches.
