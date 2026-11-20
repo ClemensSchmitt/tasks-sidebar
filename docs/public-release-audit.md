@@ -1,13 +1,29 @@
-# Public-release security and rights audit (Issue #101)
+# Public repository audit
 
-> **Decision update (18 November 2026):** The **existing** development repository remains private. A different, newly initialized public repo `ClemensSchmitt/tasks-sidebar-vscode` will contain only a vetted source snapshot and a **fresh Git history**. Historical findings documented below apply to the **private original**, not automatically to the clean public snapshot. They no longer require a history rewrite for this distribution model. Publication still needs rights clearance, an independently reviewed snapshot, an actually created public repository and human release authorization. See [the migration plan](public-repository-migration.md).
+The publication target is the existing repository, ClemensSchmitt/tasks-sidebar.
+PR #102 retains the audit tooling and ignore updates. Remove the historical
+handoff notes before changing visibility.
 
+## Local verification on 20 November 2026
 
-**Status: NO-GO as of 2026-11-17.** The repository is private. This document is
-a reproducible technical checklist, **not a declaration that publication is safe**.
-The authoritative issue is [#101](https://github.com/ClemensSchmitt/tasks-sidebar/issues/101);
-the public-marketplace rollout is blocked by [#24](https://github.com/ClemensSchmitt/tasks-sidebar/issues/24).
+- A full mirror included 53 branches, six release tags and 46 GitHub pull refs.
+  Gitleaks 8.30.1 found no matches before or after the rewrite.
+- The local rewrite removes every historical version of the private handoff
+  document and replaces the personal Git author/committer address with the
+  matching GitHub noreply address. Git integrity checks passed.
+- Gitleaks found no matches in the available issue and pull request text,
+  comments, review submissions or release notes.
+- All six existing VSIX downloads matched the previous audit hashes. Their
+  unpacked contents produced no Gitleaks matches. Five passed the current
+  structure check. v0.0.5 uses the legacy layout.
+- GitHub reports that Secret Scanning is disabled. Five linked screenshots
+  remain unverified. Gitleaks found no matches in 223 Actions artifacts and
+  183 workflow log archives. Three log archives were unavailable. Confirm
+  rights to publish the code, docs and graphics before changing visibility.
+- All 46 GitHub pull refs were affected by the rewrite. Verify cleanup of
+  those refs and historical cached views on GitHub before changing visibility.
 
+The following section records the earlier audit as historical evidence.
 ## Executed full-history and historical-release scan (17 November 2026)
 
 **Evidence:** [GitHub Actions read-only audit run #44044078271](https://github.com/ClemensSchmitt/tasks-sidebar/actions/runs/44044078271);
