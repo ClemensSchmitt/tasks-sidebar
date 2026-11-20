@@ -11,54 +11,54 @@
   <img src="docs/images/tasks-board.png" width="430" alt="Tasks Sidebar showing four tasks with tags, run status, timing estimates, and action buttons">
 </p>
 
-## Run, track, and find tasks
+<h2 align="center">Run, track, and find tasks</h2>
 
-- **Run, stop, and restart from the card.** See which tasks are active and how they ended.
-- **Know what to expect.** Progress estimates use the duration of the last successful run.
-- **Find the task you want.** Search by name, provider, folder, or tag and combine that with a status filter.
+<p align="center"><strong>Run, stop, and restart from the card.</strong> See which tasks are active and how they ended.</p>
+<p align="center"><strong>Know what to expect.</strong> Progress estimates use the duration of the last successful run.</p>
+<p align="center"><strong>Find the task you want.</strong> Search by name, provider, folder, or tag and combine that with a status filter.</p>
 
-## Make the board yours
+<h2 align="center">Make the board yours</h2>
 
-### Filter by tags
+<h3 align="center">Filter by tags</h3>
 
-Select several tags to see tasks that match all of them.
+<p align="center">Select several tags to see tasks that match all of them.</p>
 
-![Tags menu with the api tag selected](docs/images/tag-filter.png)
+<p align="center"><img src="docs/images/tag-filter.png" alt="Tags menu with the api tag selected" /></p>
 
-### Reorder your tasks
+<h3 align="center">Reorder your tasks</h3>
 
-Drag cards into place or move them with the keyboard. Your order is saved per workspace.
+<p align="center">Drag cards into place or move them with the keyboard. Your order is saved per workspace.</p>
 
-![Build backend packages card highlighted during drag and drop](docs/images/custom-order.png)
+<p align="center"><img src="docs/images/custom-order.png" alt="Build backend packages card highlighted during drag and drop" /></p>
 
-### Search with regex
+<h3 align="center">Search with regex</h3>
 
-Toggle `.*` to search with a JavaScript regular expression.
+<p align="center">Toggle <code>.*</code> to search with a JavaScript regular expression.</p>
 
-![Search field with the regex toggle highlighted](docs/images/regex-search.png)
+<p align="center"><img src="docs/images/regex-search.png" alt="Search field with the regex toggle highlighted" /></p>
 
-### Open task definitions
+<h3 align="center">Open task definitions</h3>
 
-Use the pencil to open the task file, or the plus button to create a shell task.
+<p align="center">Use the pencil to open the task file, or the plus button to create a shell task.</p>
 
-![Task Board toolbar with the pencil button highlighted](docs/images/edit-tasks.png)
+<p align="center"><img src="docs/images/edit-tasks.png" alt="Task Board toolbar with the pencil button highlighted" /></p>
 
-## Quickstart
+<h2 align="center">Quickstart</h2>
 
-1. Download the `.vsix` from the [latest GitHub release](https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest).
-2. In VS Code, open the Extensions view and choose **Install from VSIX…** from the **…** menu.
-3. Open your workspace, select **Tasks** in the Activity Bar, and press **▶** on a task card.
+<p align="center">1. Download the <code>.vsix</code> from the <a href="https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest">latest GitHub release</a>.</p>
+<p align="center">2. In VS Code, open the Extensions view and choose <strong>Install from VSIX…</strong> from the <strong>…</strong> menu.</p>
+<p align="center">3. Open your workspace, select <strong>Tasks</strong> in the Activity Bar, and press <strong>▶</strong> on a task card.</p>
 
-Already have a `.vscode/tasks.json`? The board discovers your workspace tasks automatically. Use **Tasks: Refresh** when you need to reload the list.
+<p align="center">Already have a <code>.vscode/tasks.json</code>? The board discovers your workspace tasks automatically. Use <strong>Tasks: Refresh</strong> when you need to reload the list.</p>
 
-### How tasks.json works
+<h3 align="center">How tasks.json works</h3>
 
-VS Code uses `"version": "2.0.0"` and a `tasks` array. Each task has a display name (`label`), a `type` such as `shell`, and the `command` and `args` to run. Tasks Sidebar reads an optional `tags` array for search and filtering. [VS Code guide to custom tasks](https://code.visualstudio.com/docs/debugtest/tasks#custom-tasks)
+<p align="center">VS Code uses <code>&quot;version&quot;: &quot;2.0.0&quot;</code> and a <code>tasks</code> array. Each task has a display name (<code>label</code>), a <code>type</code> such as <code>shell</code>, and the <code>command</code> and <code>args</code> to run. Tasks Sidebar reads an optional <code>tags</code> array for search and filtering. <a href="https://code.visualstudio.com/docs/debugtest/tasks#custom-tasks">VS Code guide to custom tasks</a></p>
 
 <details>
 <summary>Show the demo tasks.json from the screenshots</summary>
 
-Save this as `.vscode/tasks.json` in a fresh workspace, or add the four entries to your existing `tasks` array. The demo uses Windows PowerShell to simulate task durations from 30 seconds to five minutes.
+<p align="center">Save this as <code>.vscode/tasks.json</code> in a fresh workspace, or add the four entries to your existing <code>tasks</code> array. The demo uses Windows PowerShell to simulate task durations from 30 seconds to five minutes.</p>
 
 ```json
 {
@@ -98,14 +98,12 @@ Save this as `.vscode/tasks.json` in a fresh workspace, or add the four entries 
 
 </details>
 
-## Compatibility and remote behavior
+<h2 align="center">Compatibility and remote behavior</h2>
 
-| | |
-| --- | --- |
-| **npm and extension tasks** | Opt in with **Tasks: Toggle external task providers**. |
-| **Task output** | Open VS Code’s Terminal or Output panel. |
-| **Remote workspaces** | WSL, Dev Containers, and Remote SSH are best effort. See [compatibility details](docs/manual/11-compatibility-remote.md). |
+<p align="center"><strong>npm and extension tasks</strong> Opt in with <strong>Tasks: Toggle external task providers</strong>.</p>
+<p align="center"><strong>Task output</strong> Open VS Code’s Terminal or Output panel.</p>
+<p align="center"><strong>Remote workspaces</strong> WSL, Dev Containers, and Remote SSH are best effort. See <a href="docs/manual/11-compatibility-remote.md">compatibility details</a>.</p>
 
-## Explore the project
+<h2 align="center">Explore the project</h2>
 
-[Handbook](docs/manual/README.md) · [Changelog](CHANGELOG.md) · [Support](SUPPORT.md) · [MIT License](LICENSE)
+<p align="center"><a href="docs/manual/README.md">Handbook</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="SUPPORT.md">Support</a> · <a href="LICENSE">MIT License</a></p>
