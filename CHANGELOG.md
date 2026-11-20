@@ -4,6 +4,10 @@ Notable user-facing changes are recorded here. Entries under **Unreleased** desc
 
 ## Unreleased
 
+## 0.1.1
+
+- Refresh the README with screenshots and a copyable tasks.json demo.
+
 ## 0.1.0 — 2026-11-12
 
 - Precisely select workspace-scoped task definitions in `.code-workspace` files, with safe handling of duplicate labels and JSONC (#89).
