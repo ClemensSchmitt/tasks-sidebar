@@ -1,49 +1,62 @@
-<p align="center">
-  <img src="resources/marketplace-icon.png" width="96" height="96" alt="Tasks Sidebar icon">
-</p>
-
-<h1 align="center">Tasks Sidebar</h1>
-
-<p align="center"><strong>A task board for your VS Code workspace.</strong></p>
-
-<p align="center">
-  Run builds, tests, and dev servers from the sidebar. See what is running, what failed, and how long the last successful run took.
-</p>
+<div align="center">
+  <img src="resources/marketplace-icon.png" width="76" height="76" alt="Tasks Sidebar icon">
+  <h1>Tasks Sidebar</h1>
+  <p><strong>Run your tasks. See where they stand.</strong></p>
+  <p>A visual task board for VS Code. Start a build, rerun a test, and keep an eye on your dev server without leaving the editor.</p>
+  <p><a href="https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest"><strong>Download the VSIX ↗</strong></a> · <a href="#quickstart">Quickstart</a> · <a href="docs/manual/README.md">Handbook</a></p>
+  <p><sub>VS Code 1.85+ · Windows, macOS, Linux · MIT</sub></p>
+</div>
 
 <p align="center">
-  <a href="https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest"><strong>Download the latest VSIX</strong></a>
-  · <a href="docs/manual/README.md">Read the handbook</a>
-  · <a href="https://github.com/ClemensSchmitt/tasks-sidebar/issues">Report an issue</a>
+  <img src="docs/images/tasks-board.png" width="430" alt="Tasks Sidebar showing four tasks with tags, run status, timing estimates, and action buttons">
 </p>
 
-<p align="center">
-  <img src="docs/images/tasks-board.png" width="400" alt="Tasks Sidebar in VS Code showing four tasks, tag badges, run status, last successful durations, and progress estimates">
-</p>
+## Run, track, and find tasks
 
-## What you can do
+- **Run, stop, and restart from the card.** See which tasks are active and how they ended.
+- **Know what to expect.** Progress estimates use the duration of the last successful run.
+- **Find the task you want.** Search by name, provider, folder, or tag and combine that with a status filter.
 
-| | |
-| --- | --- |
-| **Run tasks from the sidebar** | Start, stop, and restart the tasks already defined in your VS Code workspace. |
-| **See how a run is going** | Check status and elapsed time. The last successful run gives the progress bar a time estimate. |
-| **Find a task quickly** | Search by name, provider, group, folder, or tags. Filter by status or switch on regex search. |
-| **Keep frequent tasks within reach** | Drag cards into your preferred order or move them with the keyboard. The order is saved per workspace. |
-| **Manage tasks where you run them** | Jump to a task's JSON definition or create a shell task for a folder or saved workspace. |
+## Make the board yours
 
-## Install and run your first task
+### Filter by tags
 
-Requires **VS Code 1.85 or newer**.
+Select several tags to see tasks that match all of them.
+
+![Tags menu with the api tag selected](docs/images/tag-filter.png)
+
+### Reorder your tasks
+
+Drag cards into place or move them with the keyboard. Your order is saved per workspace.
+
+![Build backend packages card highlighted during drag and drop](docs/images/custom-order.png)
+
+### Search with regex
+
+Toggle `.*` to search with a JavaScript regular expression.
+
+![Search field with the regex toggle highlighted](docs/images/regex-search.png)
+
+### Open task definitions
+
+Use the pencil to open the task file, or the plus button to create a shell task.
+
+![Task Board toolbar with the pencil button highlighted](docs/images/edit-tasks.png)
+
+## Quickstart
 
 1. Download the `.vsix` from the [latest GitHub release](https://github.com/ClemensSchmitt/tasks-sidebar/releases/latest).
 2. In VS Code, open the Extensions view and choose **Install from VSIX…** from the **…** menu.
-3. Open a workspace with a `.vscode/tasks.json` file, select **Tasks** in the Activity Bar, and press **▶** on a task card.
+3. Open your workspace, select **Tasks** in the Activity Bar, and press **▶** on a task card.
+
+Already have a `.vscode/tasks.json`? The board discovers your workspace tasks automatically. Use **Tasks: Refresh** when you need to reload the list.
 
 ### How tasks.json works
 
-VS Code reads workspace tasks from `.vscode/tasks.json`. The file declares `"version": "2.0.0"` and a `tasks` array. Each entry has a `label` for its display name, a `type` such as `shell`, and the `command` and `args` to run. Tasks Sidebar adds an optional `tags` array for search and filtering. See the [VS Code guide to custom tasks](https://code.visualstudio.com/docs/debugtest/tasks#custom-tasks).
+VS Code uses `"version": "2.0.0"` and a `tasks` array. Each task has a display name (`label`), a `type` such as `shell`, and the `command` and `args` to run. Tasks Sidebar reads an optional `tags` array for search and filtering. [VS Code guide to custom tasks](https://code.visualstudio.com/docs/debugtest/tasks#custom-tasks)
 
 <details>
-<summary>Copy the demo tasks.json from the screenshots</summary>
+<summary>Show the demo tasks.json from the screenshots</summary>
 
 Save this as `.vscode/tasks.json` in a fresh workspace, or add the four entries to your existing `tasks` array. The demo uses Windows PowerShell to simulate task durations from 30 seconds to five minutes.
 
@@ -85,40 +98,14 @@ Save this as `.vscode/tasks.json` in a fresh workspace, or add the four entries 
 
 </details>
 
-The board discovers workspace tasks automatically. Use **Tasks: Refresh** if the list is out of date. To show npm and other external task providers, run **Tasks: Toggle external task providers** or enable `tasksSidebar.includeExternalTasks`. Task output stays in VS Code's Terminal and Output panels.
-
-## The sidebar in action
-
-| Filter by tags | Reorder task cards |
-| --- | --- |
-| <img src="docs/images/tag-filter.png" width="340" alt="Tags menu open with the api tag selected"><br>Select tags to show tasks that match all of them. | <img src="docs/images/custom-order.png" width="340" alt="Build backend packages card highlighted while being dragged into a new position"><br>Drag cards into your preferred order. Tasks Sidebar saves it per workspace. |
-
-| Search with regex | Open your task file |
-| --- | --- |
-| <img src="docs/images/regex-search.png" width="340" alt="Search field with the dot-star regex toggle focused"><br>Use the `.*` toggle to search with a regular expression. | <img src="docs/images/edit-tasks.png" width="340" alt="Task Board toolbar with the pencil button focused"><br>Use the pencil in the toolbar to open the workspace task file. |
-
 ## Compatibility and remote behavior
 
-Local Windows, macOS, and Linux are covered by CI on VS Code 1.85.0 and Stable. WSL, Dev Containers, and Remote SSH are best effort. See the [compatibility guide](docs/manual/11-compatibility-remote.md) for details.
+| | |
+| --- | --- |
+| **npm and extension tasks** | Opt in with **Tasks: Toggle external task providers**. |
+| **Task output** | Open VS Code’s Terminal or Output panel. |
+| **Remote workspaces** | WSL, Dev Containers, and Remote SSH are best effort. See [compatibility details](docs/manual/11-compatibility-remote.md). |
 
-## Documentation
+## Explore the project
 
-- [Discovery and task providers](docs/manual/02-discovery-providers-identities.md)
-- [Running, stopping, and restarting tasks](docs/manual/03-execution-lifecycle.md)
-- [Search, filters, tags, and sorting](docs/manual/05-search-filter-sort.md)
-- [History and progress estimates](docs/manual/06-history-progress-persistence.md)
-- [Commands, settings, and task files](docs/manual/07-commands-settings-tasks-json.md)
-- [Keyboard controls and accessibility](docs/manual/10-accessibility.md)
-- [Troubleshooting](docs/manual/09-troubleshooting.md)
-
-## Development
-
-```bash
-npm install
-npm run check
-npm test
-```
-
-Press **F5** to open an Extension Development Host. Run `npm run test:extension` for the Extension Host suite, or `npm run package` followed by `npm run test:vsix` to verify an installed VSIX.
-
-[Changelog](CHANGELOG.md) · [Support](SUPPORT.md) · [MIT License](LICENSE)
+[Handbook](docs/manual/README.md) · [Changelog](CHANGELOG.md) · [Support](SUPPORT.md) · [MIT License](LICENSE)
