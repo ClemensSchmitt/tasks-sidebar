@@ -38,12 +38,17 @@ async function testGlobalTasks({ execute = false } = {}) {
   const board = new TaskBoard({ workspaceState: { get: (_key, fallback) => fallback, update: async () => {} } });
   const view = new TaskBoardView(extension.extensionUri, 'integration', 'local', board);
   board.attachView(view);
+  const nativeEvents = [];
+  const record = (kind, event) => {
+    if (event.execution.task.source !== source) return;
+    nativeEvents.push({ kind, name: event.execution.task.name, exitCode: event.exitCode });
+  };
   const subscriptions = [
     board.watchGlobalTasks(),
-    vscode.tasks.onDidStartTask(event => board.started(event.execution)),
-    vscode.tasks.onDidStartTaskProcess(event => board.processStarted(event.execution)),
-    vscode.tasks.onDidEndTaskProcess(event => board.processEnded(event.execution, event.exitCode)),
-    vscode.tasks.onDidEndTask(event => board.ended(event.execution))
+    vscode.tasks.onDidStartTask(event => { record('task-start', event); board.started(event.execution); }),
+    vscode.tasks.onDidStartTaskProcess(event => { record('process-start', event); board.processStarted(event.execution); }),
+    vscode.tasks.onDidEndTaskProcess(event => { record('process-end', event); board.processEnded(event.execution, event.exitCode); }),
+    vscode.tasks.onDidEndTask(event => { record('task-end', event); board.ended(event.execution); })
   ];
   const globals = () => view.pending.filter(task => task.source === source);
   try {
@@ -167,10 +172,13 @@ async function testGlobalTasks({ execute = false } = {}) {
         await waitFor(() => globals().find(task => task.id === id && task.runCount === 1 && task.lastOutcome === 'success'), name + ' successful history');
       } catch (error) {
         const status = globals().find(task => task.id === id);
-        throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}`);
+        const events = nativeEvents.filter(event => event.name === name);
+        const shellOutput = await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8').catch(() => undefined);
+        throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}. Native events: ${JSON.stringify(events)}. Shell output: ${shellOutput}`);
       }
     }
 
+    assert.equal(await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8'), 'ok');
     const { id } = duplicate[0];
     const startedProcesses = new Set();
     subscriptions.push(vscode.tasks.onDidStartTaskProcess(event => {

@@ -10,7 +10,9 @@ const fixture = {
     },
     {
       label: 'Global shell integration task', type: 'shell',
-      command: 'echo tasks-sidebar-global-shell', problemMatcher: []
+      command: 'node',
+      args: ['-e', 'setTimeout(() => require("node:fs").writeFileSync("shell-result.txt", "ok"), 750)'],
+      problemMatcher: []
     },
     {
       label: 'Global cwd integration task', type: 'process', command: 'node',
