@@ -187,7 +187,7 @@ export function resolveGlobalExecution(task: GlobalTask, context: GlobalTaskCont
   const resolveArgument = (argument: Argument): Argument => typeof argument === 'string'
     ? resolve(argument)
     : { ...argument, value: resolve(argument.value) };
-  // Without any folders, VS Code uses its own home for an omitted cwd.
+  // Resolve the default in the terminal host when there is no workspace folder.
   const cwd = task.cwd ? resolve(task.cwd) : context.folders.length ? context.home : undefined;
   if (cwd !== undefined && (!cwd || cwd.includes('${'))) {
     throw new Error('Set options.cwd to a path that resolves before the task starts.');
@@ -198,7 +198,7 @@ export function resolveGlobalExecution(task: GlobalTask, context: GlobalTaskCont
   return {
     command: resolveArgument(task.command),
     args: task.args?.map(resolveArgument),
-    cwd: cwd === undefined ? undefined : path.resolve(context.home, cwd),
+    cwd: cwd === undefined ? '${userHome}' : path.resolve(context.home, cwd),
     env: Object.fromEntries(Object.entries(task.env ?? {}).map(([key, value]) => [key, resolve(value)])),
     executable: task.shell?.executable === undefined ? undefined : resolve(task.shell.executable),
     shellArgs: task.shell?.args?.map(resolve)
