@@ -187,6 +187,7 @@ export class TaskBoard {
   private refreshRevision = 0;
   private lastPublishedSnapshots: TaskSnapshot[] = [];
   private lastPublishedWarning?: string;
+  private lastWorkspaceWarning?: string;
   private lastPublishedAtMonotonic = 0;
   private lastGoodSnapshots: TaskSnapshot[];
   private lastGoodCacheSignature: string;
@@ -450,7 +451,9 @@ export class TaskBoard {
         await this.refresh();
         return;
       }
-      const range = findTaskDefinitionRange(document.getText(), label);
+      const text = document.getText();
+      const definition = parseGlobalTasks(text, process.platform).tasks.find(task => task.label === label);
+      const range = definition && findTaskDefinitionRange(text, label, 'folder', definition.index);
       if (!range) {
         await vscode.window.showTextDocument(document);
         void vscode.window.showWarningMessage(`The definition for "${label}" is missing or ambiguous in ${uri.toString()}. Give each task a unique label and refresh.`);
@@ -681,9 +684,9 @@ export class TaskBoard {
         return makeGlobalTask(global, {
           home: this.globalHome,
           platform: process.platform,
-          folders: (vscode.workspace.workspaceFolders ?? [])
-            .filter(folder => folder.uri.scheme === 'file')
-            .map(folder => ({ name: folder.name, path: folder.uri.fsPath })),
+          folders: (vscode.workspace.workspaceFolders ?? []).map(folder => ({
+            name: folder.name, path: folder.uri.scheme === 'file' ? folder.uri.fsPath : undefined
+          })),
           env: process.env
         });
       } catch (error) {
@@ -893,7 +896,6 @@ export class TaskBoard {
   }
 
   private isActiveInCurrentWorkspace(active: ActiveTask, includeExternalTasks: boolean): boolean {
-    if (active.source === GLOBAL_TASK_SOURCE) return Boolean(this.globalUri);
     if (active.workspaceScoped) return Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
     return isWorkspaceFolderVisible(
       active.workspaceFolderUri,
@@ -1040,6 +1042,12 @@ export class TaskBoard {
     } catch (error) {
       this.reportError('Task history could not be saved.', error);
     }
+    if (shouldRestart && active.source === GLOBAL_TASK_SOURCE && !this.disposed) {
+      // Global restart validates the file directly and does not wait for workspace providers.
+      void this.publish();
+      await this.run(active.logicalId);
+      return;
+    }
     try {
       await this.publish();
     } catch (error) {
@@ -1093,11 +1101,61 @@ export class TaskBoard {
       : `[${hostLabel()}] Task discovery failed. Check tasks.json and try again.`;
   }
 
+  private snapshotsFor(
+    tasks: TaskMetadata[],
+    activeTasks: ActiveTask[],
+    dependencyIds = new Set<string>()
+  ): TaskSnapshot[] {
+    const snapshots: TaskSnapshot[] = [];
+    const represented = new Set<string>();
+    for (const metadata of tasks) {
+      const executions = activeTasks.filter(active => active.logicalId === metadata.logicalId);
+      const isDependency = dependencyIds.has(metadata.logicalId);
+      if (!executions.length) snapshots.push(toSnapshot(metadata, undefined, this.history, false, isDependency));
+      for (const active of executions) {
+        represented.add(active.executionId);
+        snapshots.push(toSnapshot(metadata, active, this.history, false, isDependency));
+      }
+    }
+    for (const active of activeTasks) {
+      if (represented.has(active.executionId)) continue;
+      snapshots.push(toSnapshot({ ...active, tags: [] }, active, this.history, true, dependencyIds.has(active.logicalId)));
+    }
+    return snapshots;
+  }
+
+  private globalSnapshots(useCached: boolean): TaskSnapshot[] {
+    if (!this.globalUri) return [];
+    const metadata = Array.from(this.globalTasks.values(), definition =>
+      toMetadata(makeGlobalTask(definition), undefined, definition.tags)
+    );
+    const active = [...this.running.values()].filter(execution => execution.source === GLOBAL_TASK_SOURCE);
+    const snapshots = this.snapshotsFor(metadata, active);
+    if (useCached) {
+      const ids = new Set(snapshots.map(snapshot => snapshot.id));
+      snapshots.push(...this.lastGoodSnapshots
+        .filter(snapshot => snapshot.source === GLOBAL_TASK_SOURCE && !ids.has(snapshot.id))
+        .map(idleSnapshot));
+    }
+    return snapshots;
+  }
+
+  private saveGoodSnapshots(snapshots: TaskSnapshot[]): void {
+    this.lastGoodSnapshots = snapshots.filter(snapshot => !snapshot.orphaned).map(idleSnapshot);
+    const signature = JSON.stringify(this.lastGoodSnapshots);
+    if (signature === this.lastGoodCacheSignature) return;
+    this.lastGoodCacheSignature = signature;
+    void Promise.resolve(this.context.workspaceState.update(LAST_GOOD_KEY, this.lastGoodSnapshots))
+      .catch(error => this.reportError('The last valid task snapshot could not be saved.', error));
+  }
+
   private async publish(): Promise<void> {
     if (this.disposed || !this.view) return;
     const revision = ++this.refreshRevision;
     let includeExternalTasks = false;
     let fetchFailed = false;
+    let globalWarning: string | undefined;
+    let useCachedGlobals = true;
     try {
       includeExternalTasks = vscode.workspace
         .getConfiguration('tasksSidebar')
@@ -1106,9 +1164,23 @@ export class TaskBoard {
       const global = await this.readGlobalTasks();
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed) return;
       if (global.tasks) this.globalTasks = global.tasks;
+      useCachedGlobals = !global.tasks;
+      globalWarning = global.warning;
+      this.reconcileRunningExecutions();
+      this.reconcilePersistedObservations();
       let tasks: vscode.Task[] = [];
       let providerUnavailable = false;
       if (hasWorkspace || includeExternalTasks) {
+        // Global discovery and changes are useful even while an external provider is slow.
+        const globals = this.globalSnapshots(useCachedGlobals);
+        if (this.globalUri && (globals.length || useCachedGlobals ||
+            this.lastPublishedSnapshots.some(snapshot => snapshot.source === GLOBAL_TASK_SOURCE))) {
+          const previous = this.lastPublishedAtMonotonic ? this.lastPublishedSnapshots : this.lastGoodSnapshots;
+          const visible = previous.filter(snapshot => this.isVisibleWorkspaceSnapshot(snapshot, includeExternalTasks));
+          const available = [...visible, ...globals].sort(compareSnapshots);
+          this.saveGoodSnapshots(available);
+          this.renderSnapshot(available, combineWarnings(this.lastWorkspaceWarning, globalWarning));
+        }
         try {
           const discovery = await this.fetchTasksWithProviderFallback();
           tasks = discovery.tasks;
@@ -1118,8 +1190,6 @@ export class TaskBoard {
         }
       }
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
-      this.reconcileRunningExecutions();
-      this.reconcilePersistedObservations();
       const workspaceTaskSpecs = await this.loadWorkspaceTaskSpecs();
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       const currentFolderUris = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString());
@@ -1138,93 +1208,41 @@ export class TaskBoard {
           source: task.source
         }))
       );
-      const metadataItems: Array<{ task: vscode.Task; metadata: TaskMetadata }> = [];
-      const snapshots: TaskSnapshot[] = [];
-      const representedExecutionIds = new Set<string>();
+      const metadataItems: TaskMetadata[] = [];
       const seenLogicalIds = new Set<string>();
       for (const task of visibleTasks) {
         const taskSpec = this.workspaceTaskSpecForTask(task, workspaceTaskSpecs);
         const metadata = toMetadata(task, taskSpec.dependency, taskSpec.tags);
         if (seenLogicalIds.has(metadata.logicalId)) continue;
         seenLogicalIds.add(metadata.logicalId);
-        metadataItems.push({ task, metadata });
+        metadataItems.push(metadata);
       }
-      for (const definition of this.globalTasks?.values() ?? []) {
-        const task = makeGlobalTask(definition);
-        metadataItems.push({ task, metadata: toMetadata(task, undefined, definition.tags) });
-      }
-      const metadataByScopeAndName = new Map<string, TaskMetadata>();
-      for (const item of metadataItems) {
-        if (item.metadata.source !== GLOBAL_TASK_SOURCE) {
-          metadataByScopeAndName.set(taskScopeNameKey(item.metadata.workspaceFolderUri, item.metadata.name), item.metadata);
-        }
-      }
+      const metadataByScopeAndName = new Map(metadataItems.map(metadata =>
+        [taskScopeNameKey(metadata.workspaceFolderUri, metadata.name), metadata]
+      ));
       const dependencyIds = new Set<string>();
-      for (const item of metadataItems) {
-        item.metadata.dependencyIds = item.metadata.dependsOn
-          .map(name => metadataByScopeAndName.get(taskScopeNameKey(item.metadata.workspaceFolderUri, name))?.logicalId)
+      for (const metadata of metadataItems) {
+        metadata.dependencyIds = metadata.dependsOn
+          .map(name => metadataByScopeAndName.get(taskScopeNameKey(metadata.workspaceFolderUri, name))?.logicalId)
           .filter((id): id is string => Boolean(id));
-        item.metadata.dependencyIds.forEach(id => dependencyIds.add(id));
+        metadata.dependencyIds.forEach(id => dependencyIds.add(id));
       }
-      for (const item of metadataItems) {
-        const { metadata } = item;
-        const activeTasks = Array.from(this.running.values()).filter(active => active.logicalId === metadata.logicalId);
-        if (!activeTasks.length) {
-          snapshots.push(toSnapshot(metadata, undefined, this.history, false, dependencyIds.has(metadata.logicalId)));
-          continue;
-        }
-        for (const active of activeTasks) {
-          representedExecutionIds.add(active.executionId);
-          snapshots.push(toSnapshot(metadata, active, this.history, false, dependencyIds.has(metadata.logicalId)));
-        }
-      }
-      for (const active of this.running.values()) {
-        if (!representedExecutionIds.has(active.executionId) && this.isActiveInCurrentWorkspace(active, includeExternalTasks)) {
-          snapshots.push(toSnapshot({
-            logicalId: active.logicalId,
-            legacyLogicalId: active.legacyLogicalId,
-            historyId: active.historyId,
-            historyMigrationSuffix: active.historyMigrationSuffix,
-            name: active.name,
-            source: active.source,
-            group: active.group,
-            tags: [],
-            isBackground: active.isBackground,
-            workspaceFolderUri: active.workspaceFolderUri,
-            workspaceFolderName: active.workspaceFolderName,
-            workspaceScoped: active.workspaceScoped,
-            dependsOn: active.dependsOn,
-            dependsOrder: active.dependsOrder,
-            dependencyIds: active.dependencyIds
-          }, active, this.history, true, dependencyIds.has(active.logicalId)));
-        }
-      }
-      // Do not erase valid tasks from other roots on a transient partial
-      // provider result (e.g. early VS Code multi-root initialization).
-      if (missingTaskFolderUris.length || providerUnavailable || !global.tasks) {
+      const active = [...this.running.values()].filter(execution =>
+        execution.source !== GLOBAL_TASK_SOURCE && this.isActiveInCurrentWorkspace(execution, includeExternalTasks)
+      );
+      const snapshots = this.snapshotsFor(metadataItems, active, dependencyIds);
+      // Keep valid tasks from other roots on a transient partial provider result.
+      if (missingTaskFolderUris.length || providerUnavailable) {
         const missing = new Set(missingTaskFolderUris);
         const knownIds = new Set(snapshots.map(snapshot => snapshot.id));
         for (const cached of this.lastGoodSnapshots) {
-          const scoped = cached.source === GLOBAL_TASK_SOURCE
-            ? !global.tasks
-            : providerUnavailable
-              ? this.isVisibleSnapshot(cached, includeExternalTasks)
-              : cached.workspaceFolderUri && missing.has(cached.workspaceFolderUri) &&
-                expectedLabels.get(cached.workspaceFolderUri)?.includes(cached.name);
-          if (!scoped || knownIds.has(cached.id)) continue;
+          if (!this.isVisibleWorkspaceSnapshot(cached, includeExternalTasks) || knownIds.has(cached.id)) continue;
+          if (!providerUnavailable && (!cached.workspaceFolderUri || !missing.has(cached.workspaceFolderUri) ||
+              !expectedLabels.get(cached.workspaceFolderUri)?.includes(cached.name))) continue;
           knownIds.add(cached.id);
-          snapshots.push({
-            ...cached, isRunning: false, elapsedMs: 0, progress: 0,
-            progressState: calculateProgressState({
-              isRunning: false, elapsedMs: 0, plannedMs: cached.plannedMs, lastOutcome: cached.lastOutcome
-            }),
-            isStopping: false, overtimeMs: undefined, executionId: undefined,
-            lifecycle: 'idle', orphaned: false
-          });
+          snapshots.push(idleSnapshot(cached));
         }
       }
-      applyDependencyState(snapshots);
-      snapshots.sort((a, b) => Number(b.isRunning) - Number(a.isRunning) || a.name.localeCompare(b.name) || a.executionId?.localeCompare(b.executionId ?? '') || 0);
       let warning: string | undefined;
       try {
         warning = fetchFailed
@@ -1241,34 +1259,12 @@ export class TaskBoard {
         warning = `[${hostLabel()}] Waiting for tasks from: ${names.join(', ')}. Retrying automatically.` +
           (warning ? ' ' + warning : '');
       }
-      warning = [warning, global.warning].filter(Boolean).join(' ') || undefined;
-      this.lastGoodSnapshots = snapshots.map(snapshot => ({ ...snapshot }));
-      const cacheSnapshots = snapshots
-        .filter(snapshot => !snapshot.orphaned)
-        .map(snapshot => ({
-          ...snapshot,
-          isRunning: false,
-          elapsedMs: 0,
-          progress: 0,
-          progressState: calculateProgressState({
-            isRunning: false,
-            elapsedMs: 0,
-            plannedMs: snapshot.plannedMs,
-            lastOutcome: snapshot.lastOutcome
-          }),
-          overtimeMs: undefined,
-          isStopping: false,
-          executionId: undefined,
-          lifecycle: 'idle' as const,
-          orphaned: false
-        }));
-      const cacheSignature = JSON.stringify(cacheSnapshots);
-      if (cacheSignature !== this.lastGoodCacheSignature) {
-        this.lastGoodCacheSignature = cacheSignature;
-        void Promise.resolve(this.context.workspaceState.update(LAST_GOOD_KEY, cacheSnapshots))
-          .catch(error => this.reportError('The last valid task snapshot could not be saved.', error));
-      }
-      this.renderSnapshot(snapshots, warning);
+      snapshots.push(...this.globalSnapshots(useCachedGlobals));
+      applyDependencyState(snapshots);
+      snapshots.sort(compareSnapshots);
+      this.lastWorkspaceWarning = warning;
+      this.saveGoodSnapshots(snapshots);
+      this.renderSnapshot(snapshots, combineWarnings(warning, globalWarning));
       this.scheduleNextDiscovery(missingTaskFolderUris.length > 0 || providerUnavailable);
     } catch (error) {
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
@@ -1279,19 +1275,49 @@ export class TaskBoard {
         // Keep the refresh failure visible even if diagnostics or file inspection also fails.
       }
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
-      const fallbackSnapshots = this.lastGoodSnapshots.filter(snapshot => this.isVisibleSnapshot(snapshot, includeExternalTasks));
-      this.renderSnapshot(fallbackSnapshots, warning);
+      const workspaceSnapshots = this.lastGoodSnapshots.filter(snapshot =>
+        this.isVisibleWorkspaceSnapshot(snapshot, includeExternalTasks)
+      );
+      const fallbackSnapshots = [...workspaceSnapshots, ...this.globalSnapshots(useCachedGlobals)].sort(compareSnapshots);
+      this.lastWorkspaceWarning = warning;
+      this.renderSnapshot(fallbackSnapshots, combineWarnings(warning, globalWarning));
       this.scheduleNextDiscovery(true);
     }
   }
 
-  private isVisibleSnapshot(snapshot: TaskSnapshot, includeExternalTasks: boolean): boolean {
-    if (snapshot.source === GLOBAL_TASK_SOURCE) return Boolean(this.globalUri);
+  private isVisibleWorkspaceSnapshot(snapshot: TaskSnapshot, includeExternalTasks: boolean): boolean {
+    if (snapshot.source === GLOBAL_TASK_SOURCE) return false;
     if (!includeExternalTasks && snapshot.source !== 'Workspace') return false;
     if (snapshot.workspaceScoped) return Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
     const currentFolders = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString());
     return isWorkspaceFolderVisible(snapshot.workspaceFolderUri, currentFolders, includeExternalTasks);
   }
+}
+
+function idleSnapshot(snapshot: TaskSnapshot): TaskSnapshot {
+  return {
+    ...snapshot,
+    isRunning: false,
+    elapsedMs: 0,
+    progress: 0,
+    progressState: calculateProgressState({
+      isRunning: false, elapsedMs: 0, plannedMs: snapshot.plannedMs, lastOutcome: snapshot.lastOutcome
+    }),
+    overtimeMs: undefined,
+    isStopping: false,
+    executionId: undefined,
+    lifecycle: 'idle',
+    orphaned: false
+  };
+}
+
+function compareSnapshots(a: TaskSnapshot, b: TaskSnapshot): number {
+  return Number(b.isRunning) - Number(a.isRunning) || a.name.localeCompare(b.name) ||
+    a.executionId?.localeCompare(b.executionId ?? '') || 0;
+}
+
+function combineWarnings(workspaceWarning?: string, globalWarning?: string): string | undefined {
+  return [workspaceWarning, globalWarning].filter(Boolean).join(' ') || undefined;
 }
 
 function globalTaskDefinition(task: GlobalTask): vscode.TaskDefinition {

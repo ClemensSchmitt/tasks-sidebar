@@ -10,7 +10,7 @@ const source = 'Global · Tasks Sidebar';
 async function waitFor(read, description) {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
-    const result = read();
+    const result = await read();
     if (result) return result;
     await new Promise(resolve => setTimeout(resolve, 150));
   }
@@ -39,7 +39,36 @@ async function testGlobalTasks({ execute = false } = {}) {
   ];
   const globals = () => view.pending.filter(task => task.source === source);
   try {
-    await board.refresh();
+    if (vscode.workspace.workspaceFolders?.length) {
+      const fetchTasks = board.fetchTasksWithProviderFallback.bind(board);
+      let releaseProviders;
+      const gate = new Promise(resolve => { releaseProviders = resolve; });
+      board.fetchTasksWithProviderFallback = async () => {
+        await gate;
+        return fetchTasks();
+      };
+      const startup = board.refresh();
+      try {
+        await waitFor(() => view.pending?.some(task => task.source === source), 'global tasks before workspace providers complete');
+        let replayed;
+        view.resolveWebviewView({ webview: {
+          onDidReceiveMessage() { return { dispose() {} }; },
+          postMessage(message) { replayed = message; return Promise.resolve(true); }
+        } });
+        assert.ok(replayed.snapshots.some(task => task.source === source && task.name === duplicateLabel));
+      } finally {
+        releaseProviders();
+        await startup;
+        board.fetchTasksWithProviderFallback = fetchTasks;
+      }
+      // Workspace task providers may need an additional scan during host startup.
+      await waitFor(async () => {
+        await board.refresh();
+        return view.pending.some(task => task.name === duplicateLabel && task.source === 'Workspace');
+      }, 'workspace tasks merged with global tasks');
+    } else {
+      await board.refresh();
+    }
     const duplicate = globals().filter(task => task.name === duplicateLabel);
     assert.equal(duplicate.length, 1, 'The shared definitions are preloaded and identical entries deduplicated.');
     assert.deepEqual(duplicate[0].tags, ['Shared']);
@@ -52,13 +81,28 @@ async function testGlobalTasks({ execute = false } = {}) {
       assert.equal(workspaceTasks.length, 0);
     }
     assert.equal(vscode.tasks.taskExecutions.filter(execution => execution.task.source === source).length, 0);
-    await board.openTasksJson(globals().find(task => task.name === 'Global shell integration task').id);
+    await board.openTasksJson(duplicate[0].id);
     const editor = vscode.window.activeTextEditor;
     assert.equal(editor.document.uri.toString(), uri);
-    assert.equal(JSON.parse(editor.document.getText(editor.selection)).label, 'Global shell integration task');
+    assert.equal(JSON.parse(editor.document.getText(editor.selection)).label, duplicateLabel);
+    assert.equal(editor.selection.start.line, 0); // The fixture is serialized to one line.
+    assert.equal(editor.document.offsetAt(editor.selection.start), editor.document.getText().indexOf('{"label"'));
 
     // The same discovery/edit checks run in three independently launched windows.
-    if (!execute) return;
+    if (!execute) {
+      if (vscode.workspace.workspaceFolders?.length === 1) {
+        const original = await fs.readFile(globalPath, 'utf8');
+        try {
+          await fs.writeFile(globalPath, '{"version":', 'utf8');
+          await waitFor(() => view.pendingWarning?.includes(uri) && view.pendingWarning.includes('Invalid JSONC'), 'malformed file warning with a workspace');
+          assert.ok(view.pending.some(task => task.name === duplicateLabel && task.source === 'Workspace'));
+          assert.equal(globals().length, 3);
+        } finally {
+          await fs.writeFile(globalPath, original, 'utf8');
+        }
+      }
+      return;
+    }
     for (const name of ['Global shell integration task', 'Global cwd integration task']) {
       const { id } = globals().find(task => task.name === name);
       await board.run(id);

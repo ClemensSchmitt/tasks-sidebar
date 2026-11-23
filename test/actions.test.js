@@ -309,6 +309,7 @@ test('global JSONC supports OS overrides, tags and deduplication while reporting
     "version": "2.0.0", "tasks": [${definition}, ${definition}, {"label":"Unsupported","type":"npm"},],
   }`, 'win32');
   assert.equal(result.tasks.length, 1);
+  assert.equal(result.tasks[0].index, 0);
   assert.equal(result.problems.length, 1);
   assert.match(result.problems[0], /shell or process/);
   const [task] = result.tasks;
@@ -332,17 +333,24 @@ test('global commands resolve folder variables only with unique context and reso
     home: 'D:\\Redirected Home\\Alice', platform: 'win32', env: { EXAMPLE: 'test' },
     folders: [{ name: 'A', path: 'D:\\Work\\first' }, { name: 'B', path: 'D:\\Work\\second' }]
   };
-  const task = { command: 'node', cwd: 'work', args: ['${workspaceFolder:B}', '${env:EXAMPLE}', '${userHome}'] };
+  const task = { problemMatchers: [], command: 'node', cwd: 'work', args: ['${workspaceFolder:B}', '${env:EXAMPLE}', '${userHome}'] };
   const resolved = globalTasks.resolveGlobalExecution(task, context);
   assert.equal(resolved.cwd, 'D:\\Redirected Home\\Alice\\work');
   assert.deepEqual(resolved.args, ['D:\\Work\\second', 'test', 'D:\\Redirected Home\\Alice']);
-  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node' }, { ...context, folders: [] }).cwd, context.home);
-  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', cwd: '${workspaceFolder}' }, {
+  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', problemMatchers: [] }, { ...context, folders: [] }).cwd, context.home);
+  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', problemMatchers: [], cwd: '${workspaceFolder}' }, {
     ...context, folders: context.folders.slice(0, 1)
   }).cwd, 'D:\\Work\\first');
   assert.throws(() => globalTasks.resolveGlobalExecution({ ...task, cwd: '${workspaceFolder}' }, context), /exactly one/);
   assert.throws(() => globalTasks.resolveGlobalExecution(task, { ...context, folders: [] }), /exactly one/);
-  assert.throws(() => globalTasks.resolveGlobalExecution({ command: '${command:extension.run}' }, context), /Unsupported variable/);
+  assert.throws(() => globalTasks.resolveGlobalExecution({ command: '${command:extension.run}', problemMatchers: [] }, context), /Unsupported variable/);
+  const nested = { ...context, env: { NESTED: '${workspaceFolder}' } };
+  assert.throws(() => globalTasks.resolveGlobalExecution({ ...task, command: '${env:NESTED}' }, nested), /expanded to another VS Code variable/);
+  assert.equal(globalTasks.resolveGlobalExecution({ ...task, command: 'echo ${SHELL_VALUE}' }, context).command, 'echo ${SHELL_VALUE}');
+  const withMatcher = { command: 'node', problemMatchers: ['$tsc'] };
+  assert.throws(() => globalTasks.resolveGlobalExecution(withMatcher, context), /Named problem matchers/);
+  assert.throws(() => globalTasks.resolveGlobalExecution(withMatcher, { ...context, folders: [] }), /Named problem matchers/);
+  assert.equal(globalTasks.resolveGlobalExecution(withMatcher, { ...context, folders: context.folders.slice(0, 1) }).cwd, context.home);
 });
 
 test('global creation in an empty window appends to the shared file and preserves comments', async () => {

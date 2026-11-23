@@ -83,6 +83,7 @@ function makeVsix(version, method = 0, extraEntries = {}, dependencies) {
     'extension.vsixmanifest': '<PackageManifest><Metadata><Identity Id="fixture" Publisher="fixture" Version="' + version + '" /></Metadata></PackageManifest>',
     'extension/out/extension.js': 'compiled entry',
     'extension/out/runtime.js': 'compiled runtime',
+    'extension/out/globalTasks.js': 'compiled global tasks support',
     'extension/resources/tasks.svg': '<svg />',
     'extension/resources/marketplace-icon.png': 'png',
     'extension/README.md': 'readme',

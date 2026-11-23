@@ -13,6 +13,7 @@ type Argument = string | Quoted;
 
 export type GlobalTask = {
   label: string;
+  index: number;
   fingerprint: string;
   type: 'shell' | 'process';
   command: Argument;
@@ -76,7 +77,7 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
-function parseEntry(raw: TaskObject, platform: Platform): GlobalTask {
+function parseEntry(raw: TaskObject, platform: Platform, index: number): GlobalTask {
   const os = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'osx' : platform === 'linux' ? 'linux' : undefined;
   const override = os ? record(raw[os]) : {};
   const entry = { ...raw, ...override };
@@ -110,7 +111,7 @@ function parseEntry(raw: TaskObject, platform: Platform): GlobalTask {
   const presentation = { ...record(raw.presentation), ...record(override.presentation) };
   const fingerprint = createHash('sha256').update(JSON.stringify(canonical({ ...execution, problemMatchers }))).digest('hex');
   return {
-    label, fingerprint, ...execution, problemMatchers, group, presentation,
+    label, index, fingerprint, ...execution, problemMatchers, group, presentation,
     detail: stringOption(entry.detail, 'detail'),
     tags: parseTaskTags({ tasks: [raw] })[label] ?? []
   };
@@ -126,9 +127,9 @@ export function parseGlobalTasks(text: string, platform: Platform): { tasks: Glo
   const problems: string[] = [];
   for (const [index, value] of file.tasks.entries()) {
     try {
-      const task = parseEntry(record(value), platform);
+      const task = parseEntry(record(value), platform, index);
       const earlier = tasks.get(task.label);
-      if (earlier && JSON.stringify(canonical(earlier)) !== JSON.stringify(canonical(task))) {
+      if (earlier && earlier.fingerprint !== task.fingerprint) {
         ambiguous.add(task.label);
         throw new Error(`Conflicting definitions use the label "${task.label}". Give them distinct labels.`);
       }
@@ -143,13 +144,16 @@ export function parseGlobalTasks(text: string, platform: Platform): { tasks: Glo
 export type GlobalTaskContext = {
   home: string;
   platform: Platform;
-  folders: readonly { name: string; path: string }[];
+  folders: readonly { name: string; path?: string }[];
   env: NodeJS.ProcessEnv;
 };
 
 export function resolveGlobalExecution(task: GlobalTask, context: GlobalTaskContext) {
   const path = context.platform === 'win32' ? win32 : posix;
-  const resolve = (text: string): string => text.replace(/\$\{([^{}]+)\}/g, (match, variable: string) => {
+  if (task.problemMatchers.length && (context.folders.length !== 1 || !context.folders[0].path)) {
+    throw new Error('Named problem matchers may resolve paths against a workspace folder. Open a single local folder or remove problemMatcher.');
+  }
+  const substitute = (match: string, variable: string): string => {
     const [name, argument] = variable.split(/:(.*)/s);
     switch (name) {
       case 'workspaceFolder':
@@ -157,7 +161,7 @@ export function resolveGlobalExecution(task: GlobalTask, context: GlobalTaskCont
       case 'workspaceFolderBasename':
       case 'workspaceRootFolderName': {
         const folders = argument === undefined ? context.folders : context.folders.filter(folder => folder.name === argument);
-        if (folders.length !== 1) {
+        if (folders.length !== 1 || !folders[0].path) {
           throw new Error(`${match} needs exactly one matching workspace folder. Open that folder or use \${workspaceFolder:FolderName} with a unique name.`);
         }
         return name === 'workspaceFolderBasename' || name === 'workspaceRootFolderName'
@@ -166,13 +170,20 @@ export function resolveGlobalExecution(task: GlobalTask, context: GlobalTaskCont
       case 'userHome': return context.home;
       case 'pathSeparator':
       case '/': return path.sep;
-      case 'env': return (argument && context.env[argument]) || '';
+      case 'env': return argument && Object.hasOwn(context.env, argument) ? context.env[argument] ?? '' : '';
       default:
         // Simple shell variables such as ${HOME} still belong to the shell.
         if (/^[A-Z_][A-Z_0-9]*$/.test(variable)) return match;
         throw new Error(`Unsupported variable ${match}. Use workspaceFolder, workspaceFolderBasename, userHome, pathSeparator or env.`);
     }
-  });
+  };
+  const resolve = (text: string): string => {
+    const resolved = text.replace(/\$\{([^{}]+)\}/g, substitute);
+    if (/\$\{(?![A-Z_][A-Z_0-9]*\})/.test(resolved)) {
+      throw new Error('A variable expanded to another VS Code variable. Use a value that resolves in one step.');
+    }
+    return resolved;
+  };
   const resolveArgument = (argument: Argument): Argument => typeof argument === 'string'
     ? resolve(argument)
     : { ...argument, value: resolve(argument.value) };

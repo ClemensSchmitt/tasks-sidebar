@@ -16,7 +16,8 @@ const flags = [
 ];
 
 async function run() {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'tasks-sidebar-profile-'));
+  const tempBase = process.platform === 'darwin' ? '/tmp' : os.tmpdir();
+  const home = await fs.mkdtemp(path.join(tempBase, 'tasks-sidebar-profile-'));
   try {
     const globalPath = path.join(home, '.vscode', 'extensions', 'tasksidebar', 'tasks.json');
     await fs.mkdir(path.dirname(globalPath), { recursive: true });
@@ -34,7 +35,12 @@ async function run() {
       await runTests({
         ...options,
         extensionTestsPath: path.resolve(__dirname, suite),
-        launchArgs: [...(target ? [path.resolve(__dirname, target)] : ['--new-window']), ...flags]
+        launchArgs: [
+          ...(target ? [path.resolve(__dirname, target)] : ['--new-window']),
+          '--user-data-dir=' + path.join(home, suite + '-profile'),
+          '--extensions-dir=' + path.join(home, '.vscode', 'extensions'),
+          ...flags
+        ]
       });
     }
   } finally {

@@ -13,7 +13,7 @@ const fixture = {
     },
     {
       label: 'Global cwd integration task', type: 'process', command: 'node',
-      args: ['-e', 'if (process.cwd() !== process.argv[1]) process.exit(42)', '${userHome}']
+      args: ['-e', 'const real = require("node:fs").realpathSync; if (real(process.cwd()) !== real(process.argv[1])) process.exit(42)', '${userHome}']
     }
   ]
 };
