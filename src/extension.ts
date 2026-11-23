@@ -122,6 +122,7 @@ const MAX_HISTORY_RECORDS = 200;
 const END_EVENT_GRACE_MS = 1000;
 const END_EVENT_TIMEOUT_MS = 10000;
 const STOP_TIMEOUT_MS = 10000;
+const GLOBAL_START_TIMEOUT_MS = 10000;
 const MIN_VSCODE_VERSION = '1.85.0';
 const NORMAL_DISCOVERY_POLL_MS = 60000;
 const PARTIAL_DISCOVERY_BACKOFF_MS = [1500, 4000, 10000, 30000, 60000];
@@ -146,6 +147,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('tasksSidebar.createTask', () => board.createTask()),
     vscode.commands.registerCommand('tasksSidebar.toggleExternalTasks', () => board.toggleExternalTasks()),
     vscode.tasks.onDidStartTask(event => board.started(event.execution)),
+    vscode.tasks.onDidStartTaskProcess(event => board.processStarted(event.execution)),
     vscode.tasks.onDidEndTaskProcess(event => board.processEnded(event.execution, event.exitCode)),
     vscode.tasks.onDidEndTask(event => board.ended(event.execution)),
     vscode.workspace.onDidChangeWorkspaceFolders(() => board.workspaceChanged()),
@@ -181,6 +183,7 @@ export class TaskBoard {
   private readonly running = new Map<string, ActiveTask>();
   private readonly executionIds = new WeakMap<vscode.TaskExecution, string>();
   private readonly starting = new Set<string>();
+  private readonly globalStartTimers = new Map<string, NodeJS.Timeout>();
   private readonly history: Record<string, TaskHistory>;
   private customTaskOrder: string[];
   private nextExecutionNumber = 1;
@@ -349,6 +352,17 @@ export class TaskBoard {
     }
     try {
       const execution = await vscode.tasks.executeTask(task);
+      if (task.source === GLOBAL_TASK_SOURCE) {
+        // The API returns before the terminal task is active. Publish the run
+        // after VS Code confirms its process, when Stop can address it.
+        if (this.starting.has(id) && !this.disposed) {
+          this.globalStartTimers.set(id, setTimeout(() => {
+            this.clearGlobalStart(id);
+            void vscode.window.showWarningMessage(`VS Code did not confirm the start of "${task.name}". Check the task terminal and try again.`);
+          }, GLOBAL_START_TIMEOUT_MS));
+        }
+        return;
+      }
       if (!this.activeForExecution(execution)) this.begin(execution);
       this.persistActiveObservations();
     } catch (error) {
@@ -407,12 +421,34 @@ export class TaskBoard {
   }
 
   started(execution: vscode.TaskExecution): void {
+    if (execution.task.source === GLOBAL_TASK_SOURCE) return;
+    this.trackStartedExecution(execution);
+  }
+
+  processStarted(execution: vscode.TaskExecution): void {
+    if (execution.task.source !== GLOBAL_TASK_SOURCE) return;
+    if (this.executionIds.has(execution) && !this.activeForExecution(execution)) return;
+    this.clearGlobalStart(taskId(execution.task));
+    this.trackStartedExecution(execution);
+  }
+
+  private clearGlobalStart(id: string): void {
+    const timer = this.globalStartTimers.get(id);
+    if (timer) clearTimeout(timer);
+    this.globalStartTimers.delete(id);
+    this.starting.delete(id);
+  }
+
+  private trackStartedExecution(execution: vscode.TaskExecution): void {
     this.begin(execution);
     this.persistActiveObservations();
     void this.publish();
   }
 
   processEnded(execution: vscode.TaskExecution, exitCode: number | undefined): void {
+    if (execution.task.source === GLOBAL_TASK_SOURCE && !this.executionIds.has(execution)) {
+      this.processStarted(execution);
+    }
     const active = this.activeForExecution(execution);
     if (!active) return;
     Object.assign(active, applyTaskExecutionEvent(active, { type: 'process-end', exitCode }));
@@ -424,6 +460,11 @@ export class TaskBoard {
   }
 
   ended(execution: vscode.TaskExecution): void {
+    if (execution.task.source === GLOBAL_TASK_SOURCE) {
+      const id = taskId(execution.task);
+      if (this.starting.has(id) && !this.executionIds.has(execution)) this.begin(execution);
+      this.clearGlobalStart(id);
+    }
     const active = this.activeForExecution(execution);
     if (!active) return;
     Object.assign(active, applyTaskExecutionEvent(active, { type: 'task-end' }));
@@ -675,6 +716,8 @@ export class TaskBoard {
     this.persistActiveObservations();
     if (this.timer) clearInterval(this.timer);
     if (this.discoveryTimer) clearTimeout(this.discoveryTimer);
+    for (const timer of this.globalStartTimers.values()) clearTimeout(timer);
+    this.globalStartTimers.clear();
     for (const active of this.running.values()) {
       if (active.finishTimer) clearTimeout(active.finishTimer);
       if (active.staleTimer) clearTimeout(active.staleTimer);

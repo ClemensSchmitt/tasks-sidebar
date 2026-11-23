@@ -34,6 +34,7 @@ async function testGlobalTasks({ execute = false } = {}) {
   const subscriptions = [
     board.watchGlobalTasks(),
     vscode.tasks.onDidStartTask(event => board.started(event.execution)),
+    vscode.tasks.onDidStartTaskProcess(event => board.processStarted(event.execution)),
     vscode.tasks.onDidEndTaskProcess(event => board.processEnded(event.execution, event.exitCode)),
     vscode.tasks.onDidEndTask(event => board.ended(event.execution))
   ];
@@ -140,11 +141,19 @@ async function testGlobalTasks({ execute = false } = {}) {
     }
 
     const { id } = duplicate[0];
+    const startedProcesses = new Set();
+    subscriptions.push(vscode.tasks.onDidStartTaskProcess(event => {
+      if (event.execution.task.source === source && event.execution.task.name === duplicateLabel) {
+        startedProcesses.add(event.execution);
+      }
+    }));
     await board.run(id);
     const running = await waitFor(() => globals().find(task => task.id === id && task.isRunning), 'first global run');
+    assert.equal(startedProcesses.size, 1, 'The run card must wait for VS Code to start its process.');
     await board.restart(running.executionId);
     const restarted = await waitFor(() => globals().find(task => task.id === id && task.isRunning &&
       task.executionId !== running.executionId), 'restarted global run');
+    assert.equal(startedProcesses.size, 2);
 
     await fs.writeFile(globalPath, '{"version":', 'utf8');
     await waitFor(() => view.pendingWarning?.includes(uri) && view.pendingWarning.includes('Invalid JSONC'), 'malformed file warning');
