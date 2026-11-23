@@ -91,6 +91,36 @@ async function testGlobalTasks({ execute = false } = {}) {
     // The same discovery/edit checks run in three independently launched windows.
     if (!execute) {
       if (vscode.workspace.workspaceFolders?.length === 1) {
+        const workspaceId = workspaceTasks[0].id;
+        await board.run(workspaceId);
+        const execution = await waitFor(() => view.pending.find(task => task.id === workspaceId && task.isRunning),
+          'workspace task to start');
+        try {
+          // The next refresh should measure from the active run while providers are blocked.
+          board.running.get(execution.executionId).startedAtMonotonic -= 5000;
+          const fetchTasks = board.fetchTasksWithProviderFallback.bind(board);
+          let releaseProviders;
+          const gate = new Promise(resolve => { releaseProviders = resolve; });
+          let providerWaiting = false;
+          board.fetchTasksWithProviderFallback = async () => {
+            providerWaiting = true;
+            await gate;
+            return fetchTasks();
+          };
+          const refresh = board.refresh();
+          try {
+            await waitFor(() => providerWaiting, 'workspace provider to block');
+            assert.ok(view.pending.find(task => task.id === workspaceId).elapsedMs >= 5000,
+              'An interim global refresh must not reset workspace task elapsed time.');
+          } finally {
+            releaseProviders();
+            await refresh;
+            board.fetchTasksWithProviderFallback = fetchTasks;
+          }
+        } finally {
+          await board.stop(execution.executionId);
+          await waitFor(() => view.pending.find(task => task.id === workspaceId && !task.isRunning), 'workspace task to stop');
+        }
         const original = await fs.readFile(globalPath, 'utf8');
         try {
           await fs.writeFile(globalPath, '{"version":', 'utf8');

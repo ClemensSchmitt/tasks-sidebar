@@ -451,9 +451,15 @@ export class TaskBoard {
         await this.refresh();
         return;
       }
-      const text = document.getText();
-      const definition = parseGlobalTasks(text, process.platform).tasks.find(task => task.label === label);
-      const range = definition && findTaskDefinitionRange(text, label, 'folder', definition.index);
+      let range: ReturnType<typeof findTaskDefinitionRange>;
+      try {
+        const text = document.getText();
+        const definition = parseGlobalTasks(text, process.platform).tasks.find(task => task.label === label);
+        range = definition && findTaskDefinitionRange(text, label, 'folder', definition.index);
+      } catch (error) {
+        await vscode.window.showTextDocument(document);
+        throw error;
+      }
       if (!range) {
         await vscode.window.showTextDocument(document);
         void vscode.window.showWarningMessage(`The definition for "${label}" is missing or ambiguous in ${uri.toString()}. Give each task a unique label and refresh.`);
@@ -471,9 +477,11 @@ export class TaskBoard {
     let folder = vscode.workspace.workspaceFolders?.[0];
     let selectedTask: vscode.Task | undefined;
     if (id) {
-      const global = this.globalTasks?.get(id);
-      if (global) {
-        await this.openGlobalTasks(global.label);
+      if (id.startsWith(GLOBAL_TASK_SOURCE + ':')) {
+        const label = this.globalTasks.get(id)?.label ?? this.lastPublishedSnapshots
+          .find(snapshot => snapshot.id === id && snapshot.source === GLOBAL_TASK_SOURCE)?.name;
+        if (label) await this.openGlobalTasks(label);
+        else void vscode.window.showWarningMessage('This global task is no longer available. Refresh the view.');
         return;
       }
       let task: vscode.Task | undefined;
@@ -1124,6 +1132,20 @@ export class TaskBoard {
     return snapshots;
   }
 
+  private refreshWorkspaceSnapshot(snapshot: TaskSnapshot): TaskSnapshot[] {
+    if (!snapshot.executionId) return [snapshot];
+    const active = this.running.get(snapshot.executionId);
+    if (!active) return snapshot.orphaned ? [] : [idleSnapshot(snapshot)];
+    const metadata = {
+      ...active,
+      tags: snapshot.tags ?? [],
+      dependsOn: snapshot.dependsOn,
+      dependsOrder: snapshot.dependsOrder,
+      dependencyIds: snapshot.dependencyIds
+    };
+    return [{ ...snapshot, ...toSnapshot(metadata, active, this.history, snapshot.orphaned, snapshot.isDependency) }];
+  }
+
   private globalSnapshots(useCached: boolean): TaskSnapshot[] {
     if (!this.globalUri) return [];
     const metadata = Array.from(this.globalTasks.values(), definition =>
@@ -1176,8 +1198,11 @@ export class TaskBoard {
         if (this.globalUri && (globals.length || useCachedGlobals ||
             this.lastPublishedSnapshots.some(snapshot => snapshot.source === GLOBAL_TASK_SOURCE))) {
           const previous = this.lastPublishedAtMonotonic ? this.lastPublishedSnapshots : this.lastGoodSnapshots;
-          const visible = previous.filter(snapshot => this.isVisibleWorkspaceSnapshot(snapshot, includeExternalTasks));
+          const visible = previous
+            .filter(snapshot => this.isVisibleWorkspaceSnapshot(snapshot, includeExternalTasks))
+            .flatMap(snapshot => this.refreshWorkspaceSnapshot(snapshot));
           const available = [...visible, ...globals].sort(compareSnapshots);
+          applyDependencyState(available);
           this.saveGoodSnapshots(available);
           this.renderSnapshot(available, combineWarnings(this.lastWorkspaceWarning, globalWarning));
         }

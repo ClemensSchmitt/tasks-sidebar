@@ -142,6 +142,7 @@ function createEmbeddedWebviewHarness(html) {
     searchError: element('searchError'),
     sort: element('sort'),
     setSort(value) { const sort = element('sort'); sort.value = value; sort.listeners.get('change')?.(); },
+    setFilter(value) { const filter = element('filter'); filter.value = value; filter.listeners.get('change')?.(); },
     warningRegion: element('warning'),
     setSearch(value) { const search = element('search'); search.value = value; search.listeners.get('input')?.(); },
     toggleRegex() { element('regexToggle').listeners.get('click')?.(); },
@@ -353,7 +354,6 @@ async function run() {
   assert.match(html, /current && current\.dataset\.message === message/);
   assert.match(html, /if \(task\.isRunning\) \{\s*if \(!task\.isStopping && task\.lifecycle !== 'awaiting-task-end'\) actions\.push\('Stop'\);\s*\} else \{\s*actions\.push\('Run'\);\s*\}/);
   assert.match(html, /if \(task\.isRunning \|\| task\.lastOutcome\) actions\.push\('Restart'\);/);
-  assert.match(html, /if \(task\.source === 'Workspace'\) actions\.push\('Edit task definition'\);/);
   assert.match(html, /return actions\.length \? actions\.join\(', '\) : 'No actions available';/);
   assert.match(html, /if \(event\.matches && progressFrame\) \{\s*cancelAnimationFrame\(progressFrame\);/);
 
@@ -587,6 +587,22 @@ async function run() {
 
   embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot], warning: 'Updated warning.' });
   assert.equal(embeddedWebview.warningRegion.children[0]?.dataset.message, 'Updated warning.');
+  embeddedWebview.send({
+    command: 'render',
+    snapshots: [
+      taskSnapshot,
+      { ...taskSnapshot, id: 'global-task', name: 'Global task', source: 'Global · Tasks Sidebar' },
+      { ...taskSnapshot, id: 'npm-task', name: 'npm task', source: 'npm' }
+    ]
+  });
+  assert.match(embeddedWebview.list.innerHTML, /aria-label="Edit Validated task"/);
+  assert.match(embeddedWebview.list.innerHTML, /aria-label="Edit Global task"/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /aria-label="Edit npm task"/);
+  embeddedWebview.setFilter('external');
+  assert.match(embeddedWebview.list.innerHTML, /npm task/);
+  assert.doesNotMatch(embeddedWebview.list.innerHTML, /Global task|Validated task/);
+  embeddedWebview.setFilter('all');
+
   embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, id: 'folder-b', workspaceFolderName: 'Folder B' }, { ...taskSnapshot, id: 'npm-task', source: 'npm' }] });
   assert.equal(embeddedWebview.taskCount.textContent, '3 tasks', 'Multi-root and enabled external-provider definitions count separately.');
   embeddedWebview.send({ command: 'render', snapshots: [taskSnapshot, { ...taskSnapshot, id: 'folder-b', workspaceFolderName: 'Folder B' }] });
