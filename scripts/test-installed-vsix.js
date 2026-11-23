@@ -91,7 +91,6 @@ async function main() {
       launchArgs: [
         fixtureWorkspace,
         ...profileArgs,
-        '--extensionEnvironment=' + JSON.stringify({ HOME: testHome, USERPROFILE: testHome }),
         '--disable-workspace-trust',
         ...(process.platform === 'linux' ? ['--disable-gpu'] : []),
       ],

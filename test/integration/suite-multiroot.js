@@ -213,8 +213,10 @@ async function run() {
 
 module.exports = {
   async run() {
+    const { useTestHome, testGlobalTasks } = require('./suite-global.js');
+    useTestHome();
     await run();
-    await require('./suite-global.js').testGlobalTasks();
+    await testGlobalTasks();
   }
 };
 

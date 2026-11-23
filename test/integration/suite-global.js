@@ -7,6 +7,13 @@ const { TaskBoard, TaskBoardView } = require('../../out/extension.js');
 const { duplicateLabel, fixture } = require('./global-fixture.js');
 const source = 'Global · Tasks Sidebar';
 
+function useTestHome() {
+  const home = process.env.TASKS_SIDEBAR_TEST_PROFILE;
+  assert.ok(home, 'An isolated home must be provided by the integration launcher.');
+  // Set this in the Extension Host after Electron and its task service start.
+  process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'] = home;
+}
+
 async function waitFor(read, description) {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
@@ -151,12 +158,17 @@ async function testGlobalTasks({ execute = false } = {}) {
       const created = JSON.parse(await fs.readFile(globalPath, 'utf8')).tasks;
       assert.ok(created.some(task => task.label === label), 'The global file must contain the saved definition.');
     }
-    await vscode.commands.executeCommand('tasksSidebar.openGlobalTasks');
+    await board.openGlobalTasks();
     await createGlobalTask('Append to existing global file');
     for (const name of ['Global shell integration task', 'Global cwd integration task']) {
       const { id } = globals().find(task => task.name === name);
       await board.run(id);
-      await waitFor(() => globals().find(task => task.id === id && task.runCount === 1 && task.lastOutcome === 'success'), name + ' successful history');
+      try {
+        await waitFor(() => globals().find(task => task.id === id && task.runCount === 1 && task.lastOutcome === 'success'), name + ' successful history');
+      } catch (error) {
+        const status = globals().find(task => task.id === id);
+        throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}`);
+      }
     }
 
     const { id } = duplicate[0];
@@ -192,7 +204,7 @@ async function testGlobalTasks({ execute = false } = {}) {
     // Creation and deletion can both occur between file watcher samples.
     await board.refresh();
     assert.equal(globals().length, 0);
-    await vscode.commands.executeCommand('tasksSidebar.openGlobalTasks');
+    await board.openGlobalTasks();
     assert.deepEqual(JSON.parse(await fs.readFile(globalPath, 'utf8')).tasks, []);
   } finally {
     subscriptions.forEach(subscription => subscription.dispose());
@@ -204,8 +216,9 @@ async function testGlobalTasks({ execute = false } = {}) {
 }
 
 async function run() {
+  useTestHome();
   assert.equal(vscode.workspace.workspaceFolders, undefined);
   await testGlobalTasks({ execute: true });
 }
 
-module.exports = { run, testGlobalTasks };
+module.exports = { run, testGlobalTasks, useTestHome };
