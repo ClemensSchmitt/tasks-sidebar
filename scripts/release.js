@@ -177,6 +177,7 @@ function inspectVsix(vsixPath) {
     'extension.vsixmanifest',
     'extension/out/extension.js',
     'extension/out/runtime.js',
+    'extension/out/globalTasks.js',
     'extension/resources/tasks.svg',
     'extension/resources/marketplace-icon.png',
     'extension/readme.md',

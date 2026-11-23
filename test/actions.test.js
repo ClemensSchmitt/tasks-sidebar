@@ -2,9 +2,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const path = require('node:path');
 const ts = require('typescript');
 const runtime = require('../out/runtime.js');
+const globalTasks = require('../out/globalTasks.js');
+
+function extensionRequire(vscode) {
+  return name => {
+    if (name === 'vscode') return vscode;
+    if (name === './runtime') return runtime;
+    if (name === './globalTasks') return globalTasks;
+    return require(name);
+  };
+}
 
 function extensionCode(file) {
   const source = fs.readFileSync(file, 'utf8');
@@ -51,7 +60,7 @@ function harness() {
   const module = { exports: {} };
   vm.runInNewContext(extensionCode(file), {
     exports: module.exports, module, Buffer, console, setTimeout, clearTimeout,
-    require: name => name === 'vscode' ? api : require(path.resolve(path.dirname(file), name))
+    require: extensionRequire(api)
   }, { filename: file });
   const board = Object.create(module.exports.TaskBoard.prototype);
   board.reportError = (message, error) => calls.push(['error', message, error.message]);
@@ -96,7 +105,7 @@ test('Edit rejects external tasks, missing/ambiguous definitions and read failur
 });
 
 
-function creationHarness({ saved = true, roots = 2, scheme = 'file', text = saved && scheme !== 'untitled' ? '{"folders":[],"tasks":{"version":"2.0.0","tasks":[]}}' : '{"version":"2.0.0","tasks":[]}', missing = false, dirty = false, race = false, raceAfterEdit = false, save = true } = {}) {
+function creationHarness({ saved = true, roots = 2, scheme = 'file', eol = 1, text = saved && scheme !== 'untitled' ? '{"folders":[],"tasks":{"version":"2.0.0","tasks":[]}}' : '{"version":"2.0.0","tasks":[]}', missing = false, dirty = false, race = false, raceAfterEdit = false, save = true } = {}) {
   const uri = value => ({ scheme: value.split(':')[0], toString: () => value });
   const workspaceUri = uri(scheme + ':///workspace/project.code-workspace');
   const folders = Array.from({ length: roots }, (_, index) => ({ name: 'repo-' + index, uri: uri('file:///workspace/repo-' + index) }));
@@ -104,7 +113,7 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
   const documents = new Map();
   const createDocument = target => {
     const doc = {
-      uri: target, version: 1, isDirty: dirty, text,
+      uri: target, version: 1, isDirty: dirty, text, eol,
       getText: () => doc.text,
       positionAt: offset => ({ offset }),
       save: async () => { if (save) { calls.writes++; doc.isDirty = false; } return save; }
@@ -116,6 +125,7 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
   class FileSystemError extends Error { constructor(code) { super(code); this.code = code; } }
   const vscode = {
     TaskScope: { Workspace: 2 },
+    EndOfLine: { LF: 1, CRLF: 2 },
     Uri: { joinPath: (base, ...parts) => uri(base.toString() + '/' + parts.join('/')) },
     FileSystemError,
     Range: class { constructor(start, end) { this.start = start; this.end = end; } },
@@ -134,7 +144,11 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
         calls.selections.push(options?.selection);
         if (race) { doc.version++; doc.isDirty = true; }
         return { revealRange() {}, async edit(callback) {
-          callback({ replace(_range, value) { doc.text = value; doc.version++; doc.isDirty = true; } });
+          callback({ replace(_range, value) {
+            doc.text = eol === 2 ? value.replace(/\r?\n/g, '\r\n') : value;
+            doc.version++;
+            doc.isDirty = true;
+          } });
           if (raceAfterEdit) { doc.text += '\n// user edit'; doc.version++; }
           return true;
         } };
@@ -158,7 +172,7 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
   };
   const exports = {};
   vm.runInNewContext(extensionCode(require.resolve('../out/extension.js')), {
-    exports, require: name => name === 'vscode' ? vscode : runtime,
+    exports, require: extensionRequire(vscode),
     Buffer, console, setTimeout, clearTimeout, setInterval, clearInterval, process, performance
   });
   // Creation/navigation do not require activating the board timers or persistence.
@@ -169,7 +183,7 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
     async showQuickPick(items) { calls.targets = items; return pick(items); },
     async showInputBox() { calls.input++; return inputs.shift(); }
   });
-  return { board, calls, ui, documents, workspaceUri, vscode };
+  return { board, calls, ui, documents, workspaceUri, vscode, createDocument };
 }
 
 test('task creation offers workspace and folder targets and appends at workspace scope', async () => {
@@ -275,4 +289,93 @@ test('saved workspaces without folders can create tasks and continue sidebar dis
   await board.publish();
   assert.equal(discovered, true, 'A saved workspace is open even when it contains no folder roots.');
   assert.doesNotMatch(await board.getDiscoveryWarning(false), /No workspace is open/);
+});
+
+test('global task path uses the current account home with native path rules', () => {
+  assert.equal(globalTasks.globalTaskPath('C:\\Users\\Alice', 'win32'),
+    'C:\\Users\\Alice\\.vscode\\extensions\\tasksidebar\\tasks.json');
+  assert.equal(globalTasks.globalTaskPath('D:\\Redirected Home\\Alice', 'win32'),
+    'D:\\Redirected Home\\Alice\\.vscode\\extensions\\tasksidebar\\tasks.json');
+  assert.equal(globalTasks.globalTaskPath('\\\\server\\profiles\\Alice', 'win32'),
+    '\\\\server\\profiles\\Alice\\.vscode\\extensions\\tasksidebar\\tasks.json');
+  assert.equal(globalTasks.globalTaskPath('/home/alice', 'linux'),
+    '/home/alice/.vscode/extensions/tasksidebar/tasks.json');
+});
+
+test('global JSONC supports OS overrides, tags and deduplication while reporting invalid entries', () => {
+  const definition = `{
+    "label": "Hello", "type": "shell", "command": "echo", "args": ["base"],
+    "tags": [" Example ", "example"], "options": { "cwd": "work", "env": { "BASE": "yes" } },
+    "windows": { "args": [{"value": "my value", "quoting": "strong"}], "options": { "env": { "OS": "windows" } } },
+    "problemMatcher": "$tsc", "presentation": { "reveal": "silent" }
+  }`;
+  const result = globalTasks.parseGlobalTasks(`{
+    // Comments and trailing commas are part of tasks.json
+    "version": "2.0.0", "tasks": [${definition}, ${definition}, {"label":"Unsupported","type":"npm"},],
+  }`, 'win32');
+  assert.equal(result.tasks.length, 1);
+  assert.equal(result.tasks[0].index, 0);
+  assert.equal(result.problems.length, 1);
+  assert.match(result.problems[0], /shell or process/);
+  const [task] = result.tasks;
+  assert.deepEqual(task.tags, ['Example']);
+  assert.deepEqual(task.args, [{ value: 'my value', quoting: 'strong' }]);
+  assert.deepEqual(task.env, { BASE: 'yes', OS: 'windows' });
+  assert.equal(task.cwd, 'work');
+  assert.deepEqual(task.problemMatchers, ['$tsc']);
+  assert.equal(task.presentation.reveal, 'silent');
+
+  const renamed = globalTasks.parseGlobalTasks(`{"version":"2.0.0","tasks":[${definition.replace('Hello', 'Renamed')}]}`, 'win32');
+  assert.equal(task.fingerprint, renamed.tasks[0].fingerprint);
+  const conflicting = globalTasks.parseGlobalTasks(`{"version":"2.0.0","tasks":[${definition}, ${definition.replace('"echo"', '"other"')}]}`, 'win32');
+  assert.equal(conflicting.tasks.length, 0);
+  assert.match(conflicting.problems[0], /Conflicting definitions/);
+  assert.throws(() => globalTasks.parseGlobalTasks('{"version":', 'win32'), /Invalid JSONC/);
+});
+
+test('global commands resolve folder variables only with unique context and resolve relative cwd from home', () => {
+  const context = {
+    home: 'D:\\Redirected Home\\Alice', platform: 'win32', env: { EXAMPLE: 'test' },
+    folders: [{ name: 'A', path: 'D:\\Work\\first' }, { name: 'B', path: 'D:\\Work\\second' }]
+  };
+  const task = { problemMatchers: [], command: 'node', cwd: 'work', args: ['${workspaceFolder:B}', '${env:EXAMPLE}', '${userHome}'] };
+  const resolved = globalTasks.resolveGlobalExecution(task, context);
+  assert.equal(resolved.cwd, 'D:\\Redirected Home\\Alice\\work');
+  assert.deepEqual(resolved.args, ['D:\\Work\\second', 'test', 'D:\\Redirected Home\\Alice']);
+  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', problemMatchers: [] }, { ...context, folders: [] }).cwd, '${userHome}');
+  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', problemMatchers: [], cwd: '${workspaceFolder}' }, {
+    ...context, folders: context.folders.slice(0, 1)
+  }).cwd, 'D:\\Work\\first');
+  assert.throws(() => globalTasks.resolveGlobalExecution({ ...task, cwd: '${workspaceFolder}' }, context), /exactly one/);
+  assert.throws(() => globalTasks.resolveGlobalExecution(task, { ...context, folders: [] }), /exactly one/);
+  assert.throws(() => globalTasks.resolveGlobalExecution({ command: '${command:extension.run}', problemMatchers: [] }, context), /Unsupported variable/);
+  const nested = { ...context, env: { NESTED: '${workspaceFolder}' } };
+  assert.throws(() => globalTasks.resolveGlobalExecution({ ...task, command: '${env:NESTED}' }, nested), /expanded to another VS Code variable/);
+  assert.equal(globalTasks.resolveGlobalExecution({ ...task, command: 'echo ${SHELL_VALUE}' }, context).command, 'echo ${SHELL_VALUE}');
+  const withMatcher = { command: 'node', problemMatchers: ['$tsc'] };
+  assert.throws(() => globalTasks.resolveGlobalExecution(withMatcher, context), /Named problem matchers/);
+  assert.throws(() => globalTasks.resolveGlobalExecution(withMatcher, { ...context, folders: [] }), /Named problem matchers/);
+  assert.equal(globalTasks.resolveGlobalExecution(withMatcher, { ...context, folders: context.folders.slice(0, 1) }).cwd, context.home);
+});
+
+test('global creation in an empty window appends to the shared file and preserves comments', async () => {
+  const h = creationHarness({ roots: 0, saved: false, missing: true, eol: 2 });
+  const location = 'file:///home/alice/.vscode/extensions/tasksidebar/tasks.json';
+  h.board.globalUri = { toString: () => location };
+  h.board.createGlobalTaskFile = async (target, value) => {
+    assert.ok(!h.documents.has(target.toString()), 'Global creation must never replace an existing file.');
+    h.createDocument(target).text = value;
+    h.calls.writes++;
+  };
+  await h.board.createTask(h.ui());
+  assert.equal(runtime.parseJsonc(h.documents.get(location).text).tasks[0].label, 'new task');
+  h.documents.get(location).text = JSON.stringify(runtime.parseJsonc(h.documents.get(location).text))
+    .replace('"tasks":', '/* keep this comment */ "tasks":');
+  await h.board.createTask(h.ui(undefined, ['another', 'echo another']));
+  assert.match(h.documents.get(location).text, /keep this comment/);
+  assert.deepEqual(runtime.parseJsonc(h.documents.get(location).text).tasks.map(task => task.label), ['new task', 'another']);
+  assert.match(h.documents.get(location).text, /\r\n/);
+  await h.board.createTask(h.ui());
+  assert.equal(h.calls.writes, 2);
+  assert.match(h.calls.errors[0], /already uses that label/);
 });

@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const resolve = Module._resolveFilename;
 Module._resolveFilename = function(request, parent, ...rest) {
   const absolute = parent && path.resolve(path.dirname(parent.filename), request);
-  if (absolute === path.join(root, 'out/runtime.js') || absolute === path.join(root, 'out/extension.js')) {
+  if (['runtime', 'extension', 'globalTasks'].some(name => absolute === path.join(root, 'out', name + '.js'))) {
     return absolute.replace(path.sep + 'out' + path.sep, path.sep + 'src' + path.sep).replace(/\.js$/, '.ts');
   }
   return resolve.call(this, request, parent, ...rest);

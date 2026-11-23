@@ -98,6 +98,43 @@
 
 </details>
 
+<h2 align="center">Global Tasks Sidebar tasks</h2>
+
+Run **Tasks: Open Global Tasks** from the Command Palette to open or initialize the shared file. Use **Tasks: Create task → Global (user)** to append a shell task, or use the edit button on a **Global · Tasks Sidebar** card to open its definition. Saved changes refresh automatically. **Tasks: Refresh** also reloads the file.
+
+| Platform | Configuration file |
+| --- | --- |
+| Windows | `<WindowsHome>\.vscode\extensions\tasksidebar\tasks.json` (typically `C:\Users\<WindowsUsername>\.vscode\extensions\tasksidebar\tasks.json`) |
+| macOS and Linux | `~/.vscode/extensions/tasksidebar/tasks.json` |
+
+The extension resolves the home directory at runtime, including redirected Windows homes. Local VS Code windows under the same OS account share this file across folders and VS Code profiles, including windows with no folder open. Each OS account has its own file by default. Remote SSH, WSL and Dev Containers cannot access this local configuration through the workspace extension host. Open a local VS Code window to use or edit it.
+
+Use VS Code-style JSONC with version `2.0.0`. Shell and process tasks support commands, arguments, working directories, environment variables, shell options, Windows/macOS/Linux overrides, named problem matchers, terminal presentation options and Tasks Sidebar tags.
+
+```jsonc
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Global: Hello",
+      "type": "shell",
+      "command": "echo Hello from a global task",
+      "problemMatcher": [],
+      "tags": ["Shared"]
+    }
+  ]
+}
+```
+
+- The default working directory is your home. Absolute `options.cwd` values work as written. Relative ones are resolved from your home. Where VS Code restricts terminals in empty windows to the VS Code home directory, open a folder before using a different working directory.
+- `${workspaceFolder}` and `${workspaceFolderBasename}` require a single local folder. In a multi-root window, use a unique folder name such as `${workspaceFolder:repo-a}`. For an empty window, use `${userHome}` or an absolute path. The file also supports `${env:NAME}` and `${pathSeparator}`.
+- Global tasks run when explicitly started in a trusted window. Named problem matchers require a single local workspace folder because VS Code may resolve their paths against it. Compound dependencies, inline problem matchers, and editor-, command- and input-dependent variables are unavailable.
+- **Tasks: Open User Tasks** is VS Code's own user-task command and uses a separate file. **Tasks: Toggle external task providers** controls those and other external providers. Tasks Sidebar global tasks remain visible with that setting off.
+
+The fixed `tasksidebar` folder has no version suffix or extension manifest. Tasks Sidebar never removes it as part of installation, update or uninstall. VS Code manages the enclosing `extensions` directory. Keep a backup if you use cleanup tools or routinely replace that directory.
+
+To verify on Windows, create a tagged global task, then open independent local VS Code windows on two different folders with the same Windows account. With external providers off, look for one global card in each window and check that a same-named folder task is a separate card. Edit and save the global definition from one window and check that the other window updates. Repeat in an empty window. To verify installation lifecycle, back up the file, upgrade or uninstall/reinstall Tasks Sidebar, and compare the file at the same path before and afterward.
+
 <h2 align="center">Compatibility and remote behavior</h2>
 
 <p align="center"><strong>npm and extension tasks</strong> Opt in with <strong>Tasks: Toggle external task providers</strong>.</p>

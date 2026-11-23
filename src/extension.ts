@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, missingWorkspaceTaskFolders, observationKey, appendShellTask, findTaskDefinitionRange, parseJsonc, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
+import { watchFile, unwatchFile, promises as fs } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname } from 'node:path';
+import { EMPTY_TASK_FILE, GLOBAL_TASK_SOURCE, GLOBAL_TASK_TYPE, globalTaskPath, parseGlobalTasks, resolveGlobalExecution, type GlobalTask } from './globalTasks';
+import { applyTaskExecutionEvent, calculateElapsedMs, calculatePlanDuration, calculateProgressPercent, calculateProgressState, classifyDiscoveryFailure, createHistoryMigrationSuffix, createHistoryTaskId, createLegacyTaskId, createLogicalTaskId, isCurrentRefresh, isSupportedVSCodeVersion, isWorkspaceFolderVisible, missingWorkspaceTaskFolders, observationKey, appendShellTask, findTaskDefinitionRange, parseJsonc, parseTaskDocument, parseTaskDependencySpecs, parseTaskProviderTypes, parseTaskTags, reconcilePersistedObservations, resolveDependencyState, resolveTaskOutcome, selectHistoryKey, selectRecentHistoryKeys, shouldAllowStart, shouldCountSuccessfulRun, shouldScheduleStaleCheck, type DependencyOrder, type DependencyState, type PersistedTaskObservation, type ProgressState, type TaskDependencySpec, type TaskExecutionLifecycle, type TaskOutcome } from './runtime';
 
 type TaskLifecycle = TaskExecutionLifecycle;
 type TaskHistory = {
@@ -118,6 +122,7 @@ const MAX_HISTORY_RECORDS = 200;
 const END_EVENT_GRACE_MS = 1000;
 const END_EVENT_TIMEOUT_MS = 10000;
 const STOP_TIMEOUT_MS = 10000;
+const GLOBAL_START_TIMEOUT_MS = 10000;
 const MIN_VSCODE_VERSION = '1.85.0';
 const NORMAL_DISCOVERY_POLL_MS = 60000;
 const PARTIAL_DISCOVERY_BACKOFF_MS = [1500, 4000, 10000, 30000, 60000];
@@ -137,9 +142,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('tasksSidebar.refresh', () => board.refresh()),
     vscode.commands.registerCommand('tasksSidebar.openTasksJson', () => board.openTasksJson()),
+    vscode.commands.registerCommand('tasksSidebar.openGlobalTasks', () => board.openGlobalTasks()),
+    board.watchGlobalTasks(),
     vscode.commands.registerCommand('tasksSidebar.createTask', () => board.createTask()),
     vscode.commands.registerCommand('tasksSidebar.toggleExternalTasks', () => board.toggleExternalTasks()),
     vscode.tasks.onDidStartTask(event => board.started(event.execution)),
+    vscode.tasks.onDidStartTaskProcess(event => board.processStarted(event.execution)),
     vscode.tasks.onDidEndTaskProcess(event => board.processEnded(event.execution, event.exitCode)),
     vscode.tasks.onDidEndTask(event => board.ended(event.execution)),
     vscode.workspace.onDidChangeWorkspaceFolders(() => board.workspaceChanged()),
@@ -175,17 +183,22 @@ export class TaskBoard {
   private readonly running = new Map<string, ActiveTask>();
   private readonly executionIds = new WeakMap<vscode.TaskExecution, string>();
   private readonly starting = new Set<string>();
+  private readonly globalStartTimers = new Map<string, NodeJS.Timeout>();
   private readonly history: Record<string, TaskHistory>;
   private customTaskOrder: string[];
   private nextExecutionNumber = 1;
   private refreshRevision = 0;
   private lastPublishedSnapshots: TaskSnapshot[] = [];
   private lastPublishedWarning?: string;
+  private lastWorkspaceWarning?: string;
   private lastPublishedAtMonotonic = 0;
   private lastGoodSnapshots: TaskSnapshot[];
   private lastGoodCacheSignature: string;
   private pendingActiveObservations: PersistedActiveObservation[];
   private activeObservationSignature = '';
+  private readonly globalHome = homedir();
+  private readonly globalUri = vscode.env.remoteName ? undefined : vscode.Uri.file(globalTaskPath(this.globalHome, process.platform));
+  private globalTasks = new Map<string, GlobalTask>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     const savedOrder = context.workspaceState.get<unknown>(CUSTOM_ORDER_KEY, []);
@@ -295,6 +308,14 @@ export class TaskBoard {
     this.view.render(updated, this.lastPublishedWarning);
   }
 
+  watchGlobalTasks(): vscode.Disposable {
+    const path = this.globalUri?.fsPath;
+    const refresh = () => { void this.refresh(); };
+    // Watching the file also observes its first creation and atomic replacement.
+    if (path) watchFile(path, { interval: 1000, persistent: false }, refresh);
+    return { dispose: () => { if (path) unwatchFile(path, refresh); } };
+  }
+
   async toggleExternalTasks(): Promise<void> {
     try {
       const configuration = vscode.workspace.getConfiguration('tasksSidebar');
@@ -302,7 +323,7 @@ export class TaskBoard {
       await configuration.update('includeExternalTasks', !current, vscode.ConfigurationTarget.Workspace);
       await this.publish();
       void vscode.window.showInformationMessage(
-        !current ? 'External task providers are now visible.' : 'Only tasks from .vscode/tasks.json are now visible.'
+        !current ? 'External task providers are now visible.' : 'Workspace and Tasks Sidebar global tasks are now visible.'
       );
     } catch (error) {
       this.reportError('The external task provider setting could not be changed.', error);
@@ -318,9 +339,9 @@ export class TaskBoard {
     this.starting.add(id);
     let task: vscode.Task | undefined;
     try {
-      task = await this.findTask(id);
-    } catch {
-      void vscode.window.showErrorMessage('Tasks could not be read. Refresh the view and try again.');
+      task = await this.findTask(id, true);
+    } catch (error) {
+      this.reportError('The task could not be prepared. Check its configuration and refresh the view.', error);
       this.starting.delete(id);
       return;
     }
@@ -331,6 +352,17 @@ export class TaskBoard {
     }
     try {
       const execution = await vscode.tasks.executeTask(task);
+      if (task.source === GLOBAL_TASK_SOURCE) {
+        // The API returns before the terminal task is active. Publish the run
+        // after VS Code confirms its process, when Stop can address it.
+        if (this.starting.has(id) && !this.disposed) {
+          this.globalStartTimers.set(id, setTimeout(() => {
+            this.clearGlobalStart(id);
+            void vscode.window.showWarningMessage(`VS Code did not confirm the start of "${task.name}". Check the task terminal and try again.`);
+          }, GLOBAL_START_TIMEOUT_MS));
+        }
+        return;
+      }
       if (!this.activeForExecution(execution)) this.begin(execution);
       this.persistActiveObservations();
     } catch (error) {
@@ -389,12 +421,34 @@ export class TaskBoard {
   }
 
   started(execution: vscode.TaskExecution): void {
+    if (execution.task.source === GLOBAL_TASK_SOURCE) return;
+    this.trackStartedExecution(execution);
+  }
+
+  processStarted(execution: vscode.TaskExecution): void {
+    if (execution.task.source !== GLOBAL_TASK_SOURCE) return;
+    if (this.executionIds.has(execution) && !this.activeForExecution(execution)) return;
+    this.clearGlobalStart(taskId(execution.task));
+    this.trackStartedExecution(execution);
+  }
+
+  private clearGlobalStart(id: string): void {
+    const timer = this.globalStartTimers.get(id);
+    if (timer) clearTimeout(timer);
+    this.globalStartTimers.delete(id);
+    this.starting.delete(id);
+  }
+
+  private trackStartedExecution(execution: vscode.TaskExecution): void {
     this.begin(execution);
     this.persistActiveObservations();
     void this.publish();
   }
 
   processEnded(execution: vscode.TaskExecution, exitCode: number | undefined): void {
+    if (execution.task.source === GLOBAL_TASK_SOURCE && !this.executionIds.has(execution)) {
+      this.processStarted(execution);
+    }
     const active = this.activeForExecution(execution);
     if (!active) return;
     Object.assign(active, applyTaskExecutionEvent(active, { type: 'process-end', exitCode }));
@@ -406,16 +460,77 @@ export class TaskBoard {
   }
 
   ended(execution: vscode.TaskExecution): void {
+    if (execution.task.source === GLOBAL_TASK_SOURCE) {
+      const id = taskId(execution.task);
+      if (this.starting.has(id) && !this.executionIds.has(execution)) this.begin(execution);
+      this.clearGlobalStart(id);
+    }
     const active = this.activeForExecution(execution);
     if (!active) return;
     Object.assign(active, applyTaskExecutionEvent(active, { type: 'task-end' }));
     this.scheduleFinish(active, active.processEndSeen ? 0 : END_EVENT_GRACE_MS);
   }
 
+  async openGlobalTasks(label?: string): Promise<void> {
+    const uri = this.globalUri;
+    if (!uri) {
+      void vscode.window.showInformationMessage('Tasks Sidebar global tasks are available in local VS Code windows. Open a local window to edit them.');
+      return;
+    }
+    try {
+      const openDocument = vscode.workspace.textDocuments.find(document => document.uri.toString() === uri.toString());
+      if (!label && !openDocument?.isDirty) {
+        try {
+          await this.createGlobalTaskFile(uri, EMPTY_TASK_FILE);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
+      }
+      const document = await vscode.workspace.openTextDocument(uri);
+      if (!label) {
+        await vscode.window.showTextDocument(document);
+        await this.refresh();
+        return;
+      }
+      let range: ReturnType<typeof findTaskDefinitionRange>;
+      try {
+        const text = document.getText();
+        const definition = parseGlobalTasks(text, process.platform).tasks.find(task => task.label === label);
+        range = definition && findTaskDefinitionRange(text, label, 'folder', definition.index);
+      } catch (error) {
+        await vscode.window.showTextDocument(document);
+        throw error;
+      }
+      if (!range) {
+        await vscode.window.showTextDocument(document);
+        void vscode.window.showWarningMessage(`The definition for "${label}" is missing or ambiguous in ${uri.toString()}. Give each task a unique label and refresh.`);
+        return;
+      }
+      const selection = new vscode.Range(document.positionAt(range.start), document.positionAt(range.end));
+      const editor = await vscode.window.showTextDocument(document, { selection });
+      editor.revealRange(selection, vscode.TextEditorRevealType.InCenter);
+    } catch (error) {
+      this.reportError(`Global tasks could not be opened in ${uri.toString()}. Check the file and its permissions.`, error);
+    }
+  }
+
+  private async createGlobalTaskFile(uri: vscode.Uri, contents: string): Promise<void> {
+    await fs.mkdir(dirname(uri.fsPath), { recursive: true });
+    // Reserve the final path atomically, including across independent VS Code windows.
+    await fs.writeFile(uri.fsPath, contents, { flag: 'wx' });
+  }
+
   async openTasksJson(id?: string): Promise<void> {
     let folder = vscode.workspace.workspaceFolders?.[0];
     let selectedTask: vscode.Task | undefined;
     if (id) {
+      if (id.startsWith(GLOBAL_TASK_SOURCE + ':')) {
+        const label = this.globalTasks.get(id)?.label ?? this.lastPublishedSnapshots
+          .find(snapshot => snapshot.id === id && snapshot.source === GLOBAL_TASK_SOURCE)?.name;
+        if (label) await this.openGlobalTasks(label);
+        else void vscode.window.showWarningMessage('This global task is no longer available. Refresh the view.');
+        return;
+      }
       let task: vscode.Task | undefined;
       try {
         task = await this.findTask(id);
@@ -518,11 +633,10 @@ export class TaskBoard {
   async createTask(ui: Pick<typeof vscode.window, 'showQuickPick' | 'showInputBox'> = vscode.window): Promise<void> {
     const workspaceFile = vscode.workspace.workspaceFile;
     const savedWorkspace = workspaceFile && workspaceFile.scheme !== 'untitled' ? workspaceFile : undefined;
-    const targets: { label: string; description: string; uri: vscode.Uri; folder?: vscode.WorkspaceFolder; workspaceScoped: boolean }[] = (vscode.workspace.workspaceFolders ?? []).map(folder => ({
+    const targets: { label: string; description: string; uri: vscode.Uri; workspaceScoped: boolean; global?: boolean }[] = (vscode.workspace.workspaceFolders ?? []).map(folder => ({
       label: folder.name,
       description: `Folder · ${folder.uri.toString()}`,
       uri: vscode.Uri.joinPath(folder.uri, '.vscode', 'tasks.json'),
-      folder,
       workspaceScoped: false
     }));
     if (savedWorkspace) targets.unshift({
@@ -530,6 +644,13 @@ export class TaskBoard {
       description: savedWorkspace.toString(),
       uri: savedWorkspace,
       workspaceScoped: true
+    });
+    if (this.globalUri) targets.push({
+      label: 'Global (user)',
+      description: this.globalUri.toString(),
+      uri: this.globalUri,
+      workspaceScoped: false,
+      global: true
     });
     if (!targets.length) {
       void vscode.window.showInformationMessage('Open a workspace before creating a task.');
@@ -547,33 +668,46 @@ export class TaskBoard {
     try {
       // Use the editor buffer, and refuse to save unrelated unsaved user changes.
       let document = vscode.workspace.textDocuments.find(item => item.uri.toString() === uri.toString());
-      if (!document) {
-        let exists = true;
+      let exists = Boolean(document);
+      if (target.global || !document) {
         try {
           await vscode.workspace.fs.stat(uri);
+          exists = true;
         } catch (error) {
           if (target.workspaceScoped || !(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') throw error;
           exists = false;
         }
-        if (exists) document = await vscode.workspace.openTextDocument(uri);
+        if (exists && !document) document = await vscode.workspace.openTextDocument(uri);
       }
       if (document?.isDirty) throw new Error('Save or revert the existing unsaved changes, then retry.');
       const version = document?.version;
-      const original = document?.getText() ?? '{\n  "version": "2.0.0",\n  "tasks": []\n}\n';
+      const original = exists ? document?.getText() ?? EMPTY_TASK_FILE : EMPTY_TASK_FILE;
+      if (target.global) {
+        const { tasks } = parseTaskDocument(original) as { tasks?: unknown };
+        if (Array.isArray(tasks) && tasks.some(item => item?.label === label.trim())) {
+          throw new Error('A global task already uses that label. Choose a unique label.');
+        }
+      }
       const updated = appendShellTask(original, label, command, target.workspaceScoped ? 'workspace' : 'folder');
-      if (document) {
+      if (exists && document) {
+        // A one-line JSONC file has no newline to infer. Match the editor's
+        // EOL before comparing the saved buffer, including CRLF on Windows.
+        const editorContents = document.eol === vscode.EndOfLine.CRLF ? updated.replace(/\r?\n/g, '\r\n') : updated;
         const editor = await vscode.window.showTextDocument(document);
         if (document.isDirty || document.version !== version) throw new Error('The file changed during task creation. Retry using its latest contents.');
         const applied = await editor.edit(builder => builder.replace(
-          new vscode.Range(document!.positionAt(0), document!.positionAt(original.length)), updated
+          new vscode.Range(document!.positionAt(0), document!.positionAt(original.length)), editorContents
         ));
         if (!applied) throw new Error('The editor rejected the change. Retry using the latest file contents.');
-        if (document.version !== version! + 1 || document.getText() !== updated) {
+        if (document.version !== version! + 1 || document.getText() !== editorContents) {
           throw new Error('The file changed during task creation. Review the unsaved changes and retry.');
         }
-        if (!await document.save()) throw new Error('The file could not be saved. Check permissions and retry.');
+        if (!await document.save()) throw new Error('The file could not be saved. Check for another edit or a permissions issue, then retry.');
+      } else if (target.global) {
+        await this.createGlobalTaskFile(uri, updated);
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
       } else {
-        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(target.folder!.uri, '.vscode'));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(uri, '..'));
         const edit = new vscode.WorkspaceEdit();
         // No overwrite: a file created concurrently must not be replaced.
         edit.createFile(uri, { overwrite: false });
@@ -595,15 +729,56 @@ export class TaskBoard {
     this.persistActiveObservations();
     if (this.timer) clearInterval(this.timer);
     if (this.discoveryTimer) clearTimeout(this.discoveryTimer);
+    for (const timer of this.globalStartTimers.values()) clearTimeout(timer);
+    this.globalStartTimers.clear();
     for (const active of this.running.values()) {
       if (active.finishTimer) clearTimeout(active.finishTimer);
       if (active.staleTimer) clearTimeout(active.staleTimer);
     }
   }
 
-  private async findTask(id: string): Promise<vscode.Task | undefined> {
+  private async findTask(id: string, forExecution = false): Promise<vscode.Task | undefined> {
+    if (id.startsWith(GLOBAL_TASK_SOURCE + ':')) {
+      if (!forExecution || !this.globalUri) return undefined;
+      if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before running global tasks.');
+      const result = await this.readGlobalTasks();
+      const global = result.tasks?.get(id);
+      if (!global) throw new Error(result.warning ?? `The definition changed in ${this.globalUri.toString()}. Refresh before running it.`);
+      try {
+        return makeGlobalTask(global, {
+          home: this.globalHome,
+          platform: process.platform,
+          folders: (vscode.workspace.workspaceFolders ?? []).map(folder => ({
+            name: folder.name, path: folder.uri.scheme === 'file' ? folder.uri.fsPath : undefined
+          })),
+          env: process.env
+        });
+      } catch (error) {
+        throw new Error(`${this.globalUri.toString()}: ${(error as Error).message}`);
+      }
+    }
     const tasks = await vscode.tasks.fetchTasks();
     return tasks.find(task => taskId(task) === id);
+  }
+
+  private async readGlobalTasks(): Promise<{ tasks?: Map<string, GlobalTask>; warning?: string }> {
+    const uri = this.globalUri;
+    if (!uri) return { tasks: new Map() };
+    try {
+      const text = await fs.readFile(uri.fsPath, 'utf8');
+      const { tasks, problems } = parseGlobalTasks(text, process.platform);
+      return {
+        tasks: new Map(tasks.map(task => [
+          createLogicalTaskId(GLOBAL_TASK_SOURCE, task.label, String(vscode.TaskScope.Global), globalTaskDefinition(task)), task
+        ])),
+        warning: problems.length ? `${uri.toString()}: ${problems.join(' ')} Fix the affected definitions and refresh.` : undefined
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { tasks: new Map(), warning: `No Global Tasks file at ${uri.toString()}. Use Tasks: Open Global Tasks to create it.` };
+      }
+      return { warning: `Could not load global tasks from ${uri.toString()}. Check JSONC and permissions, then refresh. ${(error as Error).message}` };
+    }
   }
 
   private async workspaceTaskTypes(): Promise<string[]> {
@@ -931,6 +1106,12 @@ export class TaskBoard {
     } catch (error) {
       this.reportError('Task history could not be saved.', error);
     }
+    if (shouldRestart && active.source === GLOBAL_TASK_SOURCE && !this.disposed) {
+      // Global restart validates the file directly and does not wait for workspace providers.
+      void this.publish();
+      await this.run(active.logicalId);
+      return;
+    }
     try {
       await this.publish();
     } catch (error) {
@@ -984,31 +1165,117 @@ export class TaskBoard {
       : `[${hostLabel()}] Task discovery failed. Check tasks.json and try again.`;
   }
 
+  private snapshotsFor(
+    tasks: TaskMetadata[],
+    activeTasks: ActiveTask[],
+    dependencyIds = new Set<string>()
+  ): TaskSnapshot[] {
+    const snapshots: TaskSnapshot[] = [];
+    const represented = new Set<string>();
+    for (const metadata of tasks) {
+      const executions = activeTasks.filter(active => active.logicalId === metadata.logicalId);
+      const isDependency = dependencyIds.has(metadata.logicalId);
+      if (!executions.length) snapshots.push(toSnapshot(metadata, undefined, this.history, false, isDependency));
+      for (const active of executions) {
+        represented.add(active.executionId);
+        snapshots.push(toSnapshot(metadata, active, this.history, false, isDependency));
+      }
+    }
+    for (const active of activeTasks) {
+      if (represented.has(active.executionId)) continue;
+      snapshots.push(toSnapshot({ ...active, tags: [] }, active, this.history, true, dependencyIds.has(active.logicalId)));
+    }
+    return snapshots;
+  }
+
+  private refreshWorkspaceSnapshot(snapshot: TaskSnapshot): TaskSnapshot[] {
+    if (!snapshot.executionId) return [snapshot];
+    const active = this.running.get(snapshot.executionId);
+    if (!active) return snapshot.orphaned ? [] : [idleSnapshot(snapshot)];
+    const metadata = {
+      ...active,
+      tags: snapshot.tags ?? [],
+      dependsOn: snapshot.dependsOn,
+      dependsOrder: snapshot.dependsOrder,
+      dependencyIds: snapshot.dependencyIds
+    };
+    return [{ ...snapshot, ...toSnapshot(metadata, active, this.history, snapshot.orphaned, snapshot.isDependency) }];
+  }
+
+  private globalSnapshots(useCached: boolean): TaskSnapshot[] {
+    if (!this.globalUri) return [];
+    const metadata = Array.from(this.globalTasks.values(), definition =>
+      toMetadata(makeGlobalTask(definition), undefined, definition.tags)
+    );
+    const active = [...this.running.values()].filter(execution => execution.source === GLOBAL_TASK_SOURCE);
+    const snapshots = this.snapshotsFor(metadata, active);
+    if (useCached) {
+      const ids = new Set(snapshots.map(snapshot => snapshot.id));
+      snapshots.push(...this.lastGoodSnapshots
+        .filter(snapshot => snapshot.source === GLOBAL_TASK_SOURCE && !ids.has(snapshot.id))
+        .map(idleSnapshot));
+    }
+    return snapshots;
+  }
+
+  private saveGoodSnapshots(snapshots: TaskSnapshot[]): void {
+    this.lastGoodSnapshots = snapshots.filter(snapshot => !snapshot.orphaned).map(idleSnapshot);
+    const signature = JSON.stringify(this.lastGoodSnapshots);
+    if (signature === this.lastGoodCacheSignature) return;
+    this.lastGoodCacheSignature = signature;
+    void Promise.resolve(this.context.workspaceState.update(LAST_GOOD_KEY, this.lastGoodSnapshots))
+      .catch(error => this.reportError('The last valid task snapshot could not be saved.', error));
+  }
+
   private async publish(): Promise<void> {
     if (this.disposed || !this.view) return;
     const revision = ++this.refreshRevision;
     let includeExternalTasks = false;
     let fetchFailed = false;
+    let globalWarning: string | undefined;
+    let useCachedGlobals = true;
     try {
       includeExternalTasks = vscode.workspace
         .getConfiguration('tasksSidebar')
         .get<boolean>('includeExternalTasks', false);
-      if (!includeExternalTasks && !vscode.workspace.workspaceFile && !vscode.workspace.workspaceFolders?.length) {
-        if (isCurrentRefresh(revision, this.refreshRevision) && this.view) {
-          this.renderSnapshot([], 'No workspace is open. Open a workspace and try again.');
-        }
-        return;
-      }
-      const discovery = await this.fetchTasksWithProviderFallback();
-      const tasks = discovery.tasks;
-      fetchFailed = discovery.providerFailed;
-      if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
+      const hasWorkspace = Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
+      const global = await this.readGlobalTasks();
+      if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed) return;
+      if (global.tasks) this.globalTasks = global.tasks;
+      useCachedGlobals = !global.tasks;
+      globalWarning = global.warning;
       this.reconcileRunningExecutions();
       this.reconcilePersistedObservations();
+      let tasks: vscode.Task[] = [];
+      let providerUnavailable = false;
+      if (hasWorkspace || includeExternalTasks) {
+        // Global discovery and changes are useful even while an external provider is slow.
+        const globals = this.globalSnapshots(useCachedGlobals);
+        if (this.globalUri && (globals.length || useCachedGlobals ||
+            this.lastPublishedSnapshots.some(snapshot => snapshot.source === GLOBAL_TASK_SOURCE))) {
+          const previous = this.lastPublishedAtMonotonic ? this.lastPublishedSnapshots : this.lastGoodSnapshots;
+          const visible = previous
+            .filter(snapshot => this.isVisibleWorkspaceSnapshot(snapshot, includeExternalTasks))
+            .flatMap(snapshot => this.refreshWorkspaceSnapshot(snapshot));
+          const available = [...visible, ...globals].sort(compareSnapshots);
+          applyDependencyState(available);
+          this.saveGoodSnapshots(available);
+          this.renderSnapshot(available, combineWarnings(this.lastWorkspaceWarning, globalWarning));
+        }
+        try {
+          const discovery = await this.fetchTasksWithProviderFallback();
+          tasks = discovery.tasks;
+          fetchFailed = discovery.providerFailed;
+        } catch {
+          fetchFailed = providerUnavailable = true;
+        }
+      }
+      if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       const workspaceTaskSpecs = await this.loadWorkspaceTaskSpecs();
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       const currentFolderUris = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString());
       const visibleTasks = tasks
+        .filter(task => task.source !== GLOBAL_TASK_SOURCE)
         .filter(task => includeExternalTasks || isWorkspaceJsonTask(task))
         .filter(task => task.scope === vscode.TaskScope.Workspace ||
           isWorkspaceFolderVisible(taskWorkspaceFolder(task).workspaceFolderUri, currentFolderUris, includeExternalTasks))
@@ -1022,83 +1289,41 @@ export class TaskBoard {
           source: task.source
         }))
       );
-      const metadataItems: Array<{ task: vscode.Task; metadata: TaskMetadata }> = [];
-      const snapshots: TaskSnapshot[] = [];
-      const representedExecutionIds = new Set<string>();
+      const metadataItems: TaskMetadata[] = [];
       const seenLogicalIds = new Set<string>();
       for (const task of visibleTasks) {
         const taskSpec = this.workspaceTaskSpecForTask(task, workspaceTaskSpecs);
         const metadata = toMetadata(task, taskSpec.dependency, taskSpec.tags);
         if (seenLogicalIds.has(metadata.logicalId)) continue;
         seenLogicalIds.add(metadata.logicalId);
-        metadataItems.push({ task, metadata });
+        metadataItems.push(metadata);
       }
-      const metadataByScopeAndName = new Map<string, TaskMetadata>();
-      for (const item of metadataItems) {
-        metadataByScopeAndName.set(taskScopeNameKey(item.metadata.workspaceFolderUri, item.metadata.name), item.metadata);
-      }
+      const metadataByScopeAndName = new Map(metadataItems.map(metadata =>
+        [taskScopeNameKey(metadata.workspaceFolderUri, metadata.name), metadata]
+      ));
       const dependencyIds = new Set<string>();
-      for (const item of metadataItems) {
-        item.metadata.dependencyIds = item.metadata.dependsOn
-          .map(name => metadataByScopeAndName.get(taskScopeNameKey(item.metadata.workspaceFolderUri, name))?.logicalId)
+      for (const metadata of metadataItems) {
+        metadata.dependencyIds = metadata.dependsOn
+          .map(name => metadataByScopeAndName.get(taskScopeNameKey(metadata.workspaceFolderUri, name))?.logicalId)
           .filter((id): id is string => Boolean(id));
-        item.metadata.dependencyIds.forEach(id => dependencyIds.add(id));
+        metadata.dependencyIds.forEach(id => dependencyIds.add(id));
       }
-      for (const item of metadataItems) {
-        const { metadata } = item;
-        const activeTasks = Array.from(this.running.values()).filter(active => active.logicalId === metadata.logicalId);
-        if (!activeTasks.length) {
-          snapshots.push(toSnapshot(metadata, undefined, this.history, false, dependencyIds.has(metadata.logicalId)));
-          continue;
-        }
-        for (const active of activeTasks) {
-          representedExecutionIds.add(active.executionId);
-          snapshots.push(toSnapshot(metadata, active, this.history, false, dependencyIds.has(metadata.logicalId)));
-        }
-      }
-      for (const active of this.running.values()) {
-        if (!representedExecutionIds.has(active.executionId) && this.isActiveInCurrentWorkspace(active, includeExternalTasks)) {
-          snapshots.push(toSnapshot({
-            logicalId: active.logicalId,
-            legacyLogicalId: active.legacyLogicalId,
-            historyId: active.historyId,
-            historyMigrationSuffix: active.historyMigrationSuffix,
-            name: active.name,
-            source: active.source,
-            group: active.group,
-            tags: [],
-            isBackground: active.isBackground,
-            workspaceFolderUri: active.workspaceFolderUri,
-            workspaceFolderName: active.workspaceFolderName,
-            workspaceScoped: active.workspaceScoped,
-            dependsOn: active.dependsOn,
-            dependsOrder: active.dependsOrder,
-            dependencyIds: active.dependencyIds
-          }, active, this.history, true, dependencyIds.has(active.logicalId)));
-        }
-      }
-      // Do not erase valid tasks from other roots on a transient partial
-      // provider result (e.g. early VS Code multi-root initialization).
-      if (missingTaskFolderUris.length) {
+      const active = [...this.running.values()].filter(execution =>
+        execution.source !== GLOBAL_TASK_SOURCE && this.isActiveInCurrentWorkspace(execution, includeExternalTasks)
+      );
+      const snapshots = this.snapshotsFor(metadataItems, active, dependencyIds);
+      // Keep valid tasks from other roots on a transient partial provider result.
+      if (missingTaskFolderUris.length || providerUnavailable) {
         const missing = new Set(missingTaskFolderUris);
         const knownIds = new Set(snapshots.map(snapshot => snapshot.id));
         for (const cached of this.lastGoodSnapshots) {
-          if (!cached.workspaceFolderUri || !missing.has(cached.workspaceFolderUri) ||
-              !expectedLabels.get(cached.workspaceFolderUri)?.includes(cached.name) ||
-              knownIds.has(cached.id)) continue;
+          if (!this.isVisibleWorkspaceSnapshot(cached, includeExternalTasks) || knownIds.has(cached.id)) continue;
+          if (!providerUnavailable && (!cached.workspaceFolderUri || !missing.has(cached.workspaceFolderUri) ||
+              !expectedLabels.get(cached.workspaceFolderUri)?.includes(cached.name))) continue;
           knownIds.add(cached.id);
-          snapshots.push({
-            ...cached, isRunning: false, elapsedMs: 0, progress: 0,
-            progressState: calculateProgressState({
-              isRunning: false, elapsedMs: 0, plannedMs: cached.plannedMs, lastOutcome: cached.lastOutcome
-            }),
-            isStopping: false, overtimeMs: undefined, executionId: undefined,
-            lifecycle: 'idle', orphaned: false
-          });
+          snapshots.push(idleSnapshot(cached));
         }
       }
-      applyDependencyState(snapshots);
-      snapshots.sort((a, b) => Number(b.isRunning) - Number(a.isRunning) || a.name.localeCompare(b.name) || a.executionId?.localeCompare(b.executionId ?? '') || 0);
       let warning: string | undefined;
       try {
         warning = fetchFailed
@@ -1115,34 +1340,13 @@ export class TaskBoard {
         warning = `[${hostLabel()}] Waiting for tasks from: ${names.join(', ')}. Retrying automatically.` +
           (warning ? ' ' + warning : '');
       }
-      this.lastGoodSnapshots = snapshots.map(snapshot => ({ ...snapshot }));
-      const cacheSnapshots = snapshots
-        .filter(snapshot => !snapshot.orphaned)
-        .map(snapshot => ({
-          ...snapshot,
-          isRunning: false,
-          elapsedMs: 0,
-          progress: 0,
-          progressState: calculateProgressState({
-            isRunning: false,
-            elapsedMs: 0,
-            plannedMs: snapshot.plannedMs,
-            lastOutcome: snapshot.lastOutcome
-          }),
-          overtimeMs: undefined,
-          isStopping: false,
-          executionId: undefined,
-          lifecycle: 'idle' as const,
-          orphaned: false
-        }));
-      const cacheSignature = JSON.stringify(cacheSnapshots);
-      if (cacheSignature !== this.lastGoodCacheSignature) {
-        this.lastGoodCacheSignature = cacheSignature;
-        void Promise.resolve(this.context.workspaceState.update(LAST_GOOD_KEY, cacheSnapshots))
-          .catch(error => this.reportError('The last valid task snapshot could not be saved.', error));
-      }
-      this.renderSnapshot(snapshots, warning);
-      this.scheduleNextDiscovery(missingTaskFolderUris.length > 0);
+      snapshots.push(...this.globalSnapshots(useCachedGlobals));
+      applyDependencyState(snapshots);
+      snapshots.sort(compareSnapshots);
+      this.lastWorkspaceWarning = warning;
+      this.saveGoodSnapshots(snapshots);
+      this.renderSnapshot(snapshots, combineWarnings(warning, globalWarning));
+      this.scheduleNextDiscovery(missingTaskFolderUris.length > 0 || providerUnavailable);
     } catch (error) {
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
       let warning = `[${hostLabel()}] Task discovery failed. Check tasks.json, permissions, or external providers and try again.`;
@@ -1152,16 +1356,101 @@ export class TaskBoard {
         // Keep the refresh failure visible even if diagnostics or file inspection also fails.
       }
       if (!isCurrentRefresh(revision, this.refreshRevision) || this.disposed || !this.view) return;
-      const currentFolders = new Set((vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString()));
-      const fallbackSnapshots = this.lastGoodSnapshots.filter(snapshot => {
-        if (!includeExternalTasks && snapshot.source !== 'Workspace') return false;
-        if (snapshot.workspaceScoped) return Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
-        return isWorkspaceFolderVisible(snapshot.workspaceFolderUri, currentFolders, includeExternalTasks);
-      });
-      this.renderSnapshot(fallbackSnapshots, warning);
+      const workspaceSnapshots = this.lastGoodSnapshots.filter(snapshot =>
+        this.isVisibleWorkspaceSnapshot(snapshot, includeExternalTasks)
+      );
+      const fallbackSnapshots = [...workspaceSnapshots, ...this.globalSnapshots(useCachedGlobals)].sort(compareSnapshots);
+      this.lastWorkspaceWarning = warning;
+      this.renderSnapshot(fallbackSnapshots, combineWarnings(warning, globalWarning));
       this.scheduleNextDiscovery(true);
     }
   }
+
+  private isVisibleWorkspaceSnapshot(snapshot: TaskSnapshot, includeExternalTasks: boolean): boolean {
+    if (snapshot.source === GLOBAL_TASK_SOURCE) return false;
+    if (!includeExternalTasks && snapshot.source !== 'Workspace') return false;
+    if (snapshot.workspaceScoped) return Boolean(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
+    const currentFolders = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.toString());
+    return isWorkspaceFolderVisible(snapshot.workspaceFolderUri, currentFolders, includeExternalTasks);
+  }
+}
+
+function idleSnapshot(snapshot: TaskSnapshot): TaskSnapshot {
+  return {
+    ...snapshot,
+    isRunning: false,
+    elapsedMs: 0,
+    progress: 0,
+    progressState: calculateProgressState({
+      isRunning: false, elapsedMs: 0, plannedMs: snapshot.plannedMs, lastOutcome: snapshot.lastOutcome
+    }),
+    overtimeMs: undefined,
+    isStopping: false,
+    executionId: undefined,
+    lifecycle: 'idle',
+    orphaned: false
+  };
+}
+
+function compareSnapshots(a: TaskSnapshot, b: TaskSnapshot): number {
+  return Number(b.isRunning) - Number(a.isRunning) || a.name.localeCompare(b.name) ||
+    a.executionId?.localeCompare(b.executionId ?? '') || 0;
+}
+
+function combineWarnings(workspaceWarning?: string, globalWarning?: string): string | undefined {
+  return [workspaceWarning, globalWarning].filter(Boolean).join(' ') || undefined;
+}
+
+function globalTaskDefinition(task: GlobalTask): vscode.TaskDefinition {
+  return { type: GLOBAL_TASK_TYPE, label: task.label, fingerprint: task.fingerprint };
+}
+
+function makeGlobalTask(definition: GlobalTask, context?: Parameters<typeof resolveGlobalExecution>[1]): vscode.Task {
+  let execution: vscode.ShellExecution | vscode.ProcessExecution | undefined;
+  if (context) {
+    const { command, args, cwd, env, executable, shellArgs } = resolveGlobalExecution(definition, context);
+    if (definition.type === 'process') {
+      // Process arguments have been validated as plain strings during discovery.
+      execution = new vscode.ProcessExecution(command as string, (args ?? []) as string[], { cwd, env });
+    } else {
+      const quoting = { escape: vscode.ShellQuoting.Escape, strong: vscode.ShellQuoting.Strong, weak: vscode.ShellQuoting.Weak };
+      const toShellString = (value: typeof command) => typeof value === 'string'
+        ? value : { value: value.value, quoting: quoting[value.quoting] };
+      const options = { cwd, env, executable, shellArgs };
+      execution = args === undefined && typeof command === 'string'
+        ? new vscode.ShellExecution(command, options)
+        : new vscode.ShellExecution(toShellString(command), (args ?? []).map(toShellString), options);
+    }
+  }
+  const task = new vscode.Task(
+    globalTaskDefinition(definition),
+    vscode.TaskScope.Global, definition.label, GLOBAL_TASK_SOURCE, execution, definition.problemMatchers
+  );
+  task.isBackground = definition.isBackground;
+  task.detail = definition.detail;
+  const groups: Record<string, vscode.TaskGroup> = {
+    build: vscode.TaskGroup.Build, clean: vscode.TaskGroup.Clean, rebuild: vscode.TaskGroup.Rebuild, test: vscode.TaskGroup.Test
+  };
+  if (definition.group && Object.hasOwn(groups, definition.group)) task.group = groups[definition.group];
+  const presentation = definition.presentation;
+  const reveal = { always: vscode.TaskRevealKind.Always, silent: vscode.TaskRevealKind.Silent, never: vscode.TaskRevealKind.Never };
+  const panel = { shared: vscode.TaskPanelKind.Shared, dedicated: vscode.TaskPanelKind.Dedicated, new: vscode.TaskPanelKind.New };
+  const boolean = (value: unknown) => typeof value === 'boolean' ? value : undefined;
+  const options: vscode.TaskPresentationOptions = {
+    echo: boolean(presentation.echo),
+    focus: boolean(presentation.focus),
+    showReuseMessage: boolean(presentation.showReuseMessage),
+    clear: boolean(presentation.clear),
+    close: boolean(presentation.close)
+  };
+  if (typeof presentation.reveal === 'string' && Object.hasOwn(reveal, presentation.reveal)) {
+    options.reveal = reveal[presentation.reveal as keyof typeof reveal];
+  }
+  if (typeof presentation.panel === 'string' && Object.hasOwn(panel, presentation.panel)) {
+    options.panel = panel[presentation.panel as keyof typeof panel];
+  }
+  task.presentationOptions = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined));
+  return task;
 }
 
 function isWorkspaceJsonTask(task: vscode.Task): boolean {
@@ -1779,7 +2068,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         actions.push('Run');
       }
       if (task.isRunning || task.lastOutcome) actions.push('Restart');
-      if (task.source === 'Workspace') actions.push('Edit task definition');
+      if (task.source === 'Workspace' || task.source === ${JSON.stringify(GLOBAL_TASK_SOURCE)}) actions.push('Edit task definition');
       return actions.length ? actions.join(', ') : 'No actions available';
     }
     function accessibleTaskLabel(task, status, planned) {
@@ -1892,9 +2181,9 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
           '<div class="empty-card">' +
           '<div class="empty-visual" aria-hidden="true"><div class="orbit-system"><div class="orbit-ring"></div><div class="orbit-satellite"><span></span></div><div class="empty-core"></div></div></div>' +
           '<h2 class="empty-title">Your board is ready for its first task</h2>' +
-          '<p class="empty-copy">Create a workspace task in <code>.vscode/tasks.json</code>. Once you save, it will appear here with history and runtime planning.</p>' +
+          '<p class="empty-copy">Create a workspace or global task. Saved tasks appear here with history and runtime planning.</p>' +
           '<div class="empty-actions"><button class="empty-cta" id="emptyCreate" type="button">Create task&nbsp; →</button><button class="empty-secondary" id="emptyEdit" type="button">Open tasks.json</button><button class="empty-secondary" id="emptyRefresh" type="button">Refresh</button></div>' +
-          '<p class="empty-hint">Only tasks from this workspace file are shown by default. External providers are opt-in.</p>' +
+          '<p class="empty-hint">Workspace and Tasks Sidebar global tasks are shown by default. External providers are opt-in.</p>' +
           '</div>' +
           '</section>';
         document.getElementById('emptyCreate')?.addEventListener('click', () => vscode.postMessage({ command: 'create' }));
@@ -1955,7 +2244,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         const encodedActionId = encodeURIComponent(actionId || task.id);
         const action = task.lifecycle === 'awaiting-task-end' ? '<button class="stop" disabled title="Waiting for task end" aria-label="Waiting for task end">…</button>' : task.isRunning ? task.isStopping ? '<button class="stop" disabled title="Task is stopping" aria-label="Task is stopping">…</button>' : '<button class="stop" data-action="stop" data-id="' + encodedActionId + '" title="Stop task" aria-label="Stop ' + escapeHtml(task.name) + '">■</button>' : '<button class="run" data-action="run" data-id="' + encodedActionId + '" title="Run task" aria-label="Run ' + escapeHtml(task.name) + '">▶</button>';
         const restartAction = task.isRunning || task.lastOutcome ? '<button class="restart" data-action="restart" data-id="' + encodedActionId + '" title="Restart task" aria-label="Restart ' + escapeHtml(task.name) + '">↻</button>' : '';
-        const editAction = task.source === 'Workspace' ? '<button class="edit" data-action="edit" data-id="' + encodeURIComponent(task.id) + '" title="Edit task definition" aria-label="Edit ' + escapeHtml(task.name) + '">✎</button>' : '';
+        const editAction = (task.source === 'Workspace' || task.source === ${JSON.stringify(GLOBAL_TASK_SOURCE)}) ? '<button class="edit" data-action="edit" data-id="' + encodeURIComponent(task.id) + '" title="Edit task definition" aria-label="Edit ' + escapeHtml(task.name) + '">✎</button>' : '';
         const indeterminate = task.isRunning && task.progressState === 'unknown';
         const clock = progressClocks.get(progressKey);
         const locallyElapsed = task.isRunning && clock ? Math.max(clock.lastElapsedMs, renderTime - clock.startedAt) : task.elapsedMs;
@@ -2111,7 +2400,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         if (filter === 'failed' && task.lastOutcome !== 'failed') return false;
         if (filter === 'completed' && task.lastOutcome !== 'success') return false;
         if (filter === 'unknown' && !(['unknown', 'stale'].includes(task.lastOutcome) || task.progressState === 'unknown')) return false;
-        if (filter === 'external' && task.source === 'Workspace') return false;
+        if (filter === 'external' && (task.source === 'Workspace' || task.source === ${JSON.stringify(GLOBAL_TASK_SOURCE)})) return false;
         return true;
       });
       const customIndex = new Map(order.map((id, index) => [id, index]));

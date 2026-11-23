@@ -1,4 +1,7 @@
 const path = require('node:path');
+const os = require('node:os');
+const fs = require('node:fs/promises');
+const { fixture, testHomeVariable } = require('./global-fixture.js');
 const { runTests } = require('@vscode/test-electron');
 
 const common = {
@@ -13,19 +16,47 @@ const flags = [
 ];
 
 async function run() {
-  // Keep original single-root tests unchanged; changing workspace folders
-  // inside an active Extension Host restarts the host and cancels tests.
-  await runTests({
-    ...common,
-    extensionTestsPath: path.resolve(__dirname, 'suite.js'),
-    launchArgs: [path.resolve(__dirname, 'workspace'), ...flags]
-  });
-  // A separate VS Code process loads the actual .code-workspace from startup.
-  await runTests({
-    ...common,
-    extensionTestsPath: path.resolve(__dirname, 'suite-multiroot.js'),
-    launchArgs: [path.resolve(__dirname, 'multi-root.code-workspace'), ...flags]
-  });
+  const tempBase = process.platform === 'darwin' ? '/tmp' : os.tmpdir();
+  const home = await fs.mkdtemp(path.join(tempBase, 'tasks-sidebar-profile-'));
+  try {
+    const globalPath = path.join(home, '.vscode', 'extensions', 'tasksidebar', 'tasks.json');
+    await fs.mkdir(path.dirname(globalPath), { recursive: true });
+    await fs.writeFile(globalPath, JSON.stringify(fixture), 'utf8');
+    await fs.writeFile(path.join(home, 'shell-fixture.js'),
+      `const fs = require('node:fs');
+const path = require('node:path');
+setTimeout(() => fs.writeFileSync(path.join(__dirname, 'shell-result.txt'), fs.realpathSync.native(process.cwd())), 750);
+`, 'utf8');
+    await fs.writeFile(path.join(home, 'cwd-fixture.js'), `const fs = require('node:fs');
+const path = require('node:path');
+const actual = fs.realpathSync.native(process.cwd());
+const expected = fs.realpathSync.native(process.argv[2]);
+fs.writeFileSync(path.join(__dirname, 'cwd-result.json'), JSON.stringify({ actual, expected }));
+const normalize = value => process.platform === 'win32' ? value.toLowerCase() : value;
+if (normalize(actual) !== normalize(expected)) process.exit(42);
+`, 'utf8');
+    // Distinct VS Code processes use one account-level file across all three window contexts.
+    for (const [suite, target] of [
+      ['suite.js', 'workspace'],
+      ['suite-multiroot.js', 'multi-root.code-workspace'],
+      ['suite-global.js', undefined]
+    ]) {
+      console.log(`Launching Extension Host suite ${suite}`);
+      await runTests({
+        ...common,
+        extensionTestsEnv: { [testHomeVariable]: home },
+        extensionTestsPath: path.resolve(__dirname, suite),
+        launchArgs: [
+          ...(target ? [path.resolve(__dirname, target)] : ['--new-window']),
+          '--user-data-dir=' + path.join(home, suite + '-profile'),
+          '--extensions-dir=' + path.join(home, '.vscode', 'extensions'),
+          ...flags
+        ]
+      });
+    }
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
 }
 
 run().catch(error => {

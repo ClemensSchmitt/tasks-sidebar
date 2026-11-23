@@ -673,12 +673,20 @@ function taskDocumentTree(input: string): Node {
   return root;
 }
 
-/** Select only the unique task at the explicit configuration path, preserving offsets. */
-export function findTaskDefinitionRange(input: string, name: string, kind: TaskFileKind = 'folder'): { start: number; end: number } | undefined {
+export function parseTaskDocument(input: string): unknown {
+  return getNodeValue(taskDocumentTree(input));
+}
+
+/** Select the named task at the explicit configuration path, preserving offsets. */
+export function findTaskDefinitionRange(
+  input: string, name: string, kind: TaskFileKind = 'folder', index?: number
+): { start: number; end: number } | undefined {
   const root = taskDocumentTree(input);
   const tasks = findNodeAtLocation(root, kind === 'workspace' ? ['tasks', 'tasks'] : ['tasks']);
   if (tasks?.type !== 'array') return undefined;
-  const matches = (tasks.children ?? []).filter(node => {
+  const entries = tasks.children ?? [];
+  const candidates = index === undefined ? entries : entries.slice(index, index + 1);
+  const matches = candidates.filter(node => {
     if (node.type !== 'object') return false;
     const task = getNodeValue(node) as { label?: unknown; taskName?: unknown };
     return (task.label ?? task.taskName) === name;

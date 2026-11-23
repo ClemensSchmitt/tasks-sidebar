@@ -17,8 +17,8 @@ function creationUI(workspaceScoped, label) {
     async showQuickPick(items) {
       assert.equal(items[0].label, 'Entire Workspace');
       assert.ok(items[0].description.includes('.code-workspace'));
-      assert.equal(items.length, 6);
-      return workspaceScoped ? items[0] : items.find(item => item.folder?.name === 'repo-a');
+      assert.equal(items.length, 7);
+      return workspaceScoped ? items[0] : items.find(item => item.label === 'repo-a');
     },
     async showInputBox() { return inputs.shift(); }
   };
@@ -211,7 +211,14 @@ async function run() {
   }
 }
 
-module.exports = { run };
+module.exports = {
+  async run() {
+    const { useTestHome, testGlobalTasks } = require('./suite-global.js');
+    useTestHome();
+    await run();
+    await testGlobalTasks();
+  }
+};
 
 if (require.main === module) {
   run().catch(error => { console.error(error); process.exitCode = 1; });
