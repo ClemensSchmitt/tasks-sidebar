@@ -1,4 +1,7 @@
 const path = require('node:path');
+const os = require('node:os');
+const fs = require('node:fs/promises');
+const { fixture } = require('./global-fixture.js');
 const { runTests } = require('@vscode/test-electron');
 
 const common = {
@@ -13,19 +16,30 @@ const flags = [
 ];
 
 async function run() {
-  // Keep original single-root tests unchanged; changing workspace folders
-  // inside an active Extension Host restarts the host and cancels tests.
-  await runTests({
-    ...common,
-    extensionTestsPath: path.resolve(__dirname, 'suite.js'),
-    launchArgs: [path.resolve(__dirname, 'workspace'), ...flags]
-  });
-  // A separate VS Code process loads the actual .code-workspace from startup.
-  await runTests({
-    ...common,
-    extensionTestsPath: path.resolve(__dirname, 'suite-multiroot.js'),
-    launchArgs: [path.resolve(__dirname, 'multi-root.code-workspace'), ...flags]
-  });
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'tasks-sidebar-profile-'));
+  try {
+    const globalPath = path.join(home, '.vscode', 'extensions', 'tasksidebar', 'tasks.json');
+    await fs.mkdir(path.dirname(globalPath), { recursive: true });
+    await fs.writeFile(globalPath, JSON.stringify(fixture), 'utf8');
+    const options = {
+      ...common,
+      extensionTestsEnv: { HOME: home, USERPROFILE: home, TASKS_SIDEBAR_TEST_PROFILE: home }
+    };
+    // Distinct VS Code processes use one account-level file across all three window contexts.
+    for (const [suite, target] of [
+      ['suite.js', 'workspace'],
+      ['suite-multiroot.js', 'multi-root.code-workspace'],
+      ['suite-global.js', undefined]
+    ]) {
+      await runTests({
+        ...options,
+        extensionTestsPath: path.resolve(__dirname, suite),
+        launchArgs: [...(target ? [path.resolve(__dirname, target)] : ['--new-window']), ...flags]
+      });
+    }
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
 }
 
 run().catch(error => {

@@ -42,6 +42,16 @@
         }
       ]
     },
+    "taskDefinitions": [
+      {
+        "type": "tasksSidebarGlobal",
+        "required": ["label", "fingerprint"],
+        "properties": {
+          "label": { "type": "string" },
+          "fingerprint": { "type": "string" }
+        }
+      }
+    ],
     "commands": [
       {
         "command": "tasksSidebar.refresh",
@@ -52,6 +62,11 @@
         "command": "tasksSidebar.openTasksJson",
         "title": "Tasks: Open tasks.json",
         "icon": "$(edit)"
+      },
+      {
+        "command": "tasksSidebar.openGlobalTasks",
+        "title": "Tasks: Open Global Tasks",
+        "icon": "$(globe)"
       },
       {
         "command": "tasksSidebar.createTask",
@@ -70,7 +85,7 @@
       "tasksSidebar.includeExternalTasks": {
         "type": "boolean",
         "default": false,
-        "description": "Include npm, extension and other external task providers in the sidebar. By default only tasks from the workspace .vscode/tasks.json are shown."
+        "description": "Include npm, extension and other external task providers in the sidebar. Workspace and Tasks Sidebar global tasks are always shown."
       }
     }
   },

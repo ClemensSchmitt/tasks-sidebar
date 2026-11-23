@@ -643,4 +643,9 @@ async function run() {
   ]);
 }
 
-module.exports = { run };
+module.exports = {
+  async run() {
+    await run();
+    await require('./suite-global.js').testGlobalTasks();
+  }
+};

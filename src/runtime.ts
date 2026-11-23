@@ -673,6 +673,10 @@ function taskDocumentTree(input: string): Node {
   return root;
 }
 
+export function parseTaskDocument(input: string): unknown {
+  return getNodeValue(taskDocumentTree(input));
+}
+
 /** Select only the unique task at the explicit configuration path, preserving offsets. */
 export function findTaskDefinitionRange(input: string, name: string, kind: TaskFileKind = 'folder'): { start: number; end: number } | undefined {
   const root = taskDocumentTree(input);

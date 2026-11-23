@@ -52,10 +52,14 @@ async function main() {
   const vscodeVersion = process.env.VSCODE_VERSION || 'stable';
   const tempBase = process.platform === 'darwin' ? '/tmp' : os.tmpdir();
   const tempDirectory = fs.mkdtempSync(path.join(tempBase, 'tsv-'));
-  const extensionsDirectory = path.join(tempDirectory, 'e');
+  const testHome = path.join(tempDirectory, 'home');
+  const extensionsDirectory = path.join(testHome, '.vscode', 'extensions');
+  const globalTasksFile = path.join(extensionsDirectory, 'tasksidebar', 'tasks.json');
+  const globalTasksContents = '{ "version": "2.0.0", "tasks": [] }\n';
   const userDataDirectory = path.join(tempDirectory, 'd');
   const hostReportPath = path.join(tempDirectory, 'r.json');
-  fs.mkdirSync(extensionsDirectory, { recursive: true });
+  fs.mkdirSync(path.dirname(globalTasksFile), { recursive: true });
+  fs.writeFileSync(globalTasksFile, globalTasksContents, 'utf8');
   fs.mkdirSync(userDataDirectory, { recursive: true });
 
   try {
@@ -66,6 +70,9 @@ async function main() {
       '--extensions-dir=' + extensionsDirectory,
     ];
     runCli(cli, cliPrefix, [...profileArgs, '--install-extension', vsix, '--force']);
+    assert.equal(fs.readFileSync(globalTasksFile, 'utf8'), globalTasksContents);
+    runCli(cli, cliPrefix, [...profileArgs, '--install-extension', vsix, '--force']);
+    assert.equal(fs.readFileSync(globalTasksFile, 'utf8'), globalTasksContents, 'Reinstall must preserve global tasks.');
     const installedExtensions = runCli(cli, cliPrefix, [...profileArgs, '--list-extensions', '--show-versions']);
     const expectedIdentity = (extensionId + '@' + version).toLowerCase();
     const actualIdentities = installedExtensions.split(/\r?\n/).map(line => line.trim().toLowerCase());
@@ -81,6 +88,7 @@ async function main() {
       vscodeExecutablePath: executable,
       extensionDevelopmentPath: path.join(root, 'test', 'installed', 'host'),
       extensionTestsPath: path.join(root, 'test', 'installed', 'suite.js'),
+      extensionTestsEnv: { HOME: testHome, USERPROFILE: testHome },
       launchArgs: [
         fixtureWorkspace,
         ...profileArgs,
@@ -88,6 +96,9 @@ async function main() {
         ...(process.platform === 'linux' ? ['--disable-gpu'] : []),
       ],
     });
+
+    runCli(cli, cliPrefix, [...profileArgs, '--uninstall-extension', extensionId]);
+    assert.equal(fs.readFileSync(globalTasksFile, 'utf8'), globalTasksContents, 'Uninstall must preserve global tasks.');
 
     const hostReport = JSON.parse(fs.readFileSync(hostReportPath, 'utf8'));
     const report = {
@@ -112,6 +123,7 @@ async function main() {
         activityBarViewCommand: 'passed',
         installedExtensionActivation: 'passed',
         refreshCommand: 'passed',
+        globalConfigurationSurvivesReinstallAndUninstall: 'passed',
       },
     };
     fs.writeFileSync(path.join(root, 'vsix-install-probe.json'), JSON.stringify(report, null, 2) + '\n');
