@@ -1680,6 +1680,16 @@ function taskId(task: vscode.Task): string {
   return createLogicalTaskId(source, task.name, scope, task.definition);
 }
 
+function singleChoiceDropdown(id: string, label: string, choices: ReadonlyArray<readonly [string, string]>): string {
+  const options = choices.map(([value, text], index) =>
+    `<label class="dropdown-option"><input type="radio" name="${id}" value="${value}"${index === 0 ? ' checked' : ''}><span>${text}</span></label>`
+  ).join('');
+  return `<div id="${id}Picker" class="dropdown">
+    <button id="${id}Summary" class="dropdown-trigger" type="button" aria-expanded="false" aria-controls="${id}Popover" aria-haspopup="dialog" aria-labelledby="${id}Label ${id}Value"><span id="${id}Label" class="sr-only">${label}</span><span id="${id}Value" class="dropdown-value">${choices[0][1]}</span><span class="dropdown-chevron" aria-hidden="true"></span></button>
+    <div id="${id}Popover" class="dropdown-panel" role="dialog" aria-label="${label}" hidden><div id="${id}" class="dropdown-options" role="radiogroup" aria-label="${label}">${options}</div></div>
+  </div>`;
+}
+
 export function createTaskBoardHtml(extensionVersion: string, hostLabel: string): string {
   const nonce = getNonce();
   const safeVersion = extensionVersion.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' } as Record<string, string>)[character]);
@@ -1713,7 +1723,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .actions { display: flex; gap: 4px; }
     button { min-width: 28px; min-height: 28px; border: 0; color: inherit; background: transparent; cursor: pointer; border-radius: 6px; padding: 5px 7px; font: inherit; }
     button:hover { background: var(--vscode-toolbar-hoverBackground); }
-    button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    button:focus-visible, input:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .primary { background: color-mix(in srgb, var(--violet) 16%, transparent); color: var(--violet); }
     .primary:hover { background: color-mix(in srgb, var(--violet) 27%, transparent); }
     .board-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0 0 10px; }
@@ -1726,23 +1736,37 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     #searchError { color: var(--vscode-inputValidation-errorForeground, var(--danger)); font-size: 0.85em; padding: 0 3px; }
     #searchError:empty { display: none; }
     .search { min-width: 0; padding: 7px 9px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 72%, transparent); font: inherit; }
-    .view-select { min-width: 78px; padding: 5px 6px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); font: inherit; }
     .view-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; grid-column: 1 / -1; }
-    .view-options .view-select { min-width: 0; }
-    .view-options #sort { grid-column: 1 / -1; }
-    .tag-picker { position: relative; min-width: 0; z-index: 2; }
-    .tag-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 28px; min-width: 0; padding: 5px 7px; text-align: left; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); }
-    .tag-chevron { flex: none; color: var(--muted); }
-    /* An anchored overlay must not participate in the filter grid's layout. */
-    .tag-popover { position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; width: max(100%, min(240px, calc(100vw - 24px))); max-width: calc(100vw - 24px); padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); box-shadow: 0 8px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .25)); }
-    .tag-popover[hidden] { display: none; }
-    #tagFilter { display: flex; flex-direction: column; max-height: 140px; overflow-y: auto; overscroll-behavior: contain; }
-    #tagFilter label { display: flex; align-items: center; gap: 5px; height: 28px; min-height: 28px; padding: 0 3px; min-width: 0; cursor: pointer; }
-    #tagFilter label:focus-within { outline: 1px solid var(--focus); outline-offset: -1px; }
-    #tagFilter label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #tagFilter input { flex: none; }
-    #tagFilter .no-tags { min-height: 28px; padding: 6px; color: var(--muted); }
-    #clearTags { width: 100%; margin-top: 4px; padding: 5px 7px; min-height: 26px; text-align: left; color: var(--violet); border-top: 1px solid var(--line); border-radius: 0; }
+    #sortPicker { grid-column: 1 / -1; }
+    .dropdown {
+      --dropdown-ink: var(--vscode-dropdown-foreground, var(--ink));
+      --dropdown-bg: var(--vscode-dropdown-background, var(--surface-raised));
+      --dropdown-border: var(--vscode-contrastBorder, var(--vscode-dropdown-border, var(--line)));
+      --dropdown-radius: 7px;
+      --dropdown-row-height: 28px;
+      position: relative;
+      min-width: 0;
+    }
+    .dropdown-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; height: var(--dropdown-row-height); min-width: 0; padding: 4px 9px; text-align: left; border: 1px solid var(--dropdown-border); border-radius: var(--dropdown-radius); color: var(--dropdown-ink); background: var(--dropdown-bg); }
+    .dropdown-trigger:hover:not(:disabled), .dropdown-trigger[aria-expanded="true"] { background: var(--vscode-toolbar-hoverBackground, var(--dropdown-bg)); }
+    .dropdown-trigger[aria-expanded="true"] { border-color: var(--focus); }
+    .dropdown-trigger:disabled, .dropdown-option:has(input:disabled) { color: var(--vscode-disabledForeground, var(--muted)); cursor: default; }
+    .dropdown-value, .dropdown-option span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dropdown-chevron { flex: none; width: 6px; height: 6px; margin: 0 2px 3px; border: solid currentColor; border-width: 0 1px 1px 0; transform: rotate(45deg); }
+    .dropdown-trigger[aria-expanded="true"] .dropdown-chevron { transform: rotate(225deg); margin-block: 3px 0; }
+    /* Anchored panels use the same visual treatment and stay out of the grid layout. */
+    .dropdown-panel { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; width: max(100%, min(240px, calc(100vw - 24px))); max-width: calc(100vw - 24px); padding: 6px; border: 1px solid var(--dropdown-border); border-radius: var(--dropdown-radius); color: var(--dropdown-ink); background: var(--vscode-dropdown-listBackground, var(--dropdown-bg)); box-shadow: 0 8px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .25)); }
+    #tagPopover { right: 0; left: auto; }
+    .dropdown-panel[hidden] { display: none; }
+    .dropdown-options { display: flex; flex-direction: column; max-height: calc(var(--dropdown-row-height) * 5); overflow-y: auto; overscroll-behavior: contain; }
+    .dropdown-option { display: flex; align-items: center; gap: 6px; height: var(--dropdown-row-height); min-height: var(--dropdown-row-height); padding: 0 6px; border-radius: 4px; cursor: pointer; }
+    .dropdown-option:hover:not(:has(input:disabled)) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-list-hoverForeground, var(--dropdown-ink)); }
+    .dropdown-option:has(input:checked) { background: var(--vscode-list-activeSelectionBackground, var(--vscode-inputOption-activeBackground, var(--dropdown-bg))); color: var(--vscode-list-activeSelectionForeground, var(--dropdown-ink)); }
+    .dropdown-option:has(input:focus-visible) { outline: 1px solid var(--focus); outline-offset: -1px; }
+    .dropdown-option input { flex: none; margin: 0; }
+    .dropdown-option input:focus-visible { outline: none; }
+    .dropdown-options .no-tags { min-height: var(--dropdown-row-height); padding: 6px; color: var(--muted); }
+    #clearTags { width: 100%; margin-top: 4px; padding: 5px 7px; min-height: 26px; text-align: left; color: var(--violet); border-top: 1px solid var(--dropdown-border); border-radius: 0; }
     .task[draggable="true"] { cursor: grab; }
     .task[draggable="true"]:active { cursor: grabbing; }
     .task.drag-over { outline: 2px dashed var(--focus); outline-offset: 2px; }
@@ -1811,9 +1835,15 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .restart { color: var(--violet); }
     .high-contrast { border-color: var(--focus); }
     @media (forced-colors: active) {
-      body, .task, .empty-card, .search, .view-select, .tag, .tag-trigger, .tag-popover { color: CanvasText; border-color: CanvasText; background: Canvas; }
-      button, input, select, .meta, .sub, .host, .empty-hint { color: CanvasText; }
-      button:focus-visible, input:focus-visible, select:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid Highlight; }
+      body, .task, .empty-card, .search, .tag, .dropdown-trigger, .dropdown-panel { color: CanvasText; border-color: CanvasText; background: Canvas; }
+      button, input, .meta, .sub, .host, .empty-hint { color: CanvasText; }
+      button:focus-visible, input:focus-visible, #list:focus-visible, .task:focus-visible { outline: 2px solid Highlight; }
+      .dropdown-trigger:disabled, .dropdown-option:has(input:disabled) { color: GrayText; }
+      .dropdown-trigger:hover:not(:disabled), .dropdown-trigger[aria-expanded="true"] { border-color: Highlight; }
+      .dropdown-option:hover:not(:has(input:disabled)) { outline: 1px solid Highlight; outline-offset: -1px; }
+      .dropdown-option:has(input:checked) { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+      .dropdown-option:has(input:focus-visible) { outline: 2px solid Highlight; outline-offset: -2px; }
+      .dropdown-option:has(input:checked:focus-visible) { outline-color: HighlightText; }
       #regexToggle[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
       #regexToggle:focus-visible { outline: 2px solid Highlight; }
       #searchError { color: CanvasText; }
@@ -1838,9 +1868,15 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     <div class="search-wrap"><input id="search" class="search" type="text" placeholder="Search tasks, tags, sources, groups…" aria-label="Search tasks, tags, sources, groups" aria-describedby="searchError"><button id="regexToggle" type="button" aria-label="Use Regular Expression" title="Use Regular Expression" aria-pressed="false">.*</button></div>
     <div id="searchError" role="alert" aria-live="polite"></div>
     <div class="view-options">
-      <select id="filter" class="view-select" aria-label="Filter tasks"><option value="all">All tasks</option><option value="running">Running</option><option value="failed">Failed</option><option value="completed">Completed</option><option value="unknown">Unknown / stale</option><option value="external">External providers</option></select>
-      <div id="tagPicker" class="tag-picker"><button id="tagSummary" class="tag-trigger" type="button" aria-expanded="false" aria-controls="tagPopover" aria-haspopup="dialog">Tags<span class="tag-chevron" aria-hidden="true">▾</span></button><div id="tagPopover" class="tag-popover" role="dialog" aria-label="Tags" hidden><div id="tagFilter" role="group" aria-label="Filter tasks by tags"></div><button id="clearTags" type="button">Clear tags</button></div></div>
-      <select id="sort" class="view-select" aria-label="Sort tasks"><option value="name">Sort: name</option><option value="status">Sort: status</option><option value="elapsed">Sort: elapsed</option><option value="folder">Sort: folder</option><option value="custom">Sort: custom (drag)</option></select>
+      ${singleChoiceDropdown('filter', 'Filter tasks', [
+        ['all', 'All tasks'], ['running', 'Running'], ['failed', 'Failed'], ['completed', 'Completed'],
+        ['unknown', 'Unknown / stale'], ['external', 'External providers']
+      ])}
+      <div id="tagPicker" class="dropdown"><button id="tagSummary" class="dropdown-trigger" type="button" aria-expanded="false" aria-controls="tagPopover" aria-haspopup="dialog"><span class="dropdown-value">Tags</span><span class="dropdown-chevron" aria-hidden="true"></span></button><div id="tagPopover" class="dropdown-panel" role="dialog" aria-label="Tags" hidden><div id="tagFilter" class="dropdown-options" role="group" aria-label="Filter tasks by tags"></div><button id="clearTags" type="button">Clear tags</button></div></div>
+      ${singleChoiceDropdown('sort', 'Sort tasks', [
+        ['name', 'Sort: name'], ['status', 'Sort: status'], ['elapsed', 'Sort: elapsed'],
+        ['folder', 'Sort: folder'], ['custom', 'Sort: custom (drag)']
+      ])}
     </div>
   </div>
   <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
@@ -1855,9 +1891,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     const searchError = document.getElementById('searchError');
     const filter = document.getElementById('filter');
     const tagFilter = document.getElementById('tagFilter');
-    const tagPicker = document.getElementById('tagPicker');
     const tagSummary = document.getElementById('tagSummary');
-    const tagPopover = document.getElementById('tagPopover');
     const sort = document.getElementById('sort');
     const announcer = document.getElementById('announcer');
     const warningRegion = document.getElementById('warning');
@@ -1873,7 +1907,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     let selectedTags = [];
     let selectedSort = ['name', 'status', 'elapsed', 'folder', 'custom'].includes(savedSearch.selectedSort)
       ? savedSearch.selectedSort : 'name';
-    if (sort) sort.value = selectedSort;
+    syncChoice(sort, 'sortValue', selectedSort);
     let customOrder = [];
     let draggedId = '';
     let tagOptionsSignature = '';
@@ -1917,28 +1951,84 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       persistSearch();
       render(allTasks);
     });
-    filter?.addEventListener('change', () => { selectedFilter = filter.value; render(allTasks); });
-    function setTagDropdownOpen(open) {
-      if (!tagPopover || !tagSummary) return;
-      tagPopover.hidden = !open;
-      tagSummary.setAttribute('aria-expanded', String(open));
+    let activeDropdown;
+    function closeDropdown(restoreFocus = false) {
+      if (!activeDropdown) return;
+      const { trigger, panel } = activeDropdown;
+      activeDropdown = undefined;
+      panel.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) trigger.focus();
     }
-    tagSummary?.addEventListener('click', () => setTagDropdownOpen(tagPopover.hidden));
+    function wireDropdown(id, singleChoice) {
+      const picker = document.getElementById(id + 'Picker');
+      const trigger = document.getElementById(id + 'Summary');
+      const panel = document.getElementById(id + 'Popover');
+      const dropdown = { picker, trigger, panel };
+      trigger.addEventListener('click', () => {
+        if (activeDropdown === dropdown) {
+          closeDropdown(true);
+          return;
+        }
+        closeDropdown();
+        activeDropdown = dropdown;
+        panel.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        (panel.querySelector('input:checked:not(:disabled)') || panel.querySelector('input:not(:disabled), button:not(:disabled)'))?.focus();
+      });
+      picker.addEventListener('focusout', event => {
+        if (activeDropdown === dropdown && event.relatedTarget && !picker.contains(event.relatedTarget)) closeDropdown();
+      });
+      if (singleChoice) {
+        panel.addEventListener('click', event => {
+          if (event.detail > 0 && event.target.closest('.dropdown-option')) {
+            // Give label activation its native click/change before hiding the radio.
+            requestAnimationFrame(() => { if (activeDropdown === dropdown) closeDropdown(true); });
+          }
+        });
+        panel.addEventListener('keydown', event => {
+          if (event.key === 'Enter' && event.target.matches('input[type="radio"]')) {
+            event.preventDefault();
+            closeDropdown(true);
+          }
+        });
+      }
+    }
+    wireDropdown('filter', true);
+    wireDropdown('tag', false);
+    wireDropdown('sort', true);
     document.addEventListener('pointerdown', event => {
-      if (tagPopover && !tagPopover.hidden && !tagPicker?.contains(event.target)) setTagDropdownOpen(false);
+      if (activeDropdown && !activeDropdown.picker.contains(event.target)) closeDropdown();
     });
     document.addEventListener('keydown', event => {
-      if (event.key !== 'Escape' || !tagPopover || tagPopover.hidden) return;
-      setTagDropdownOpen(false);
-      tagSummary?.focus();
-      event.preventDefault();
+      if (event.key === 'Escape' && activeDropdown) {
+        closeDropdown(true);
+        event.preventDefault();
+      }
+    });
+
+    function syncChoice(group, valueId, value) {
+      const choice = group.querySelector('input[value="' + value + '"]');
+      if (!choice) return;
+      choice.checked = true;
+      document.getElementById(valueId).textContent = choice.nextElementSibling.textContent;
+    }
+    filter?.addEventListener('change', event => {
+      selectedFilter = event.target.value;
+      syncChoice(filter, 'filterValue', selectedFilter);
+      render(allTasks);
     });
     tagFilter?.addEventListener('change', () => {
       selectedTags = Array.from(tagFilter.querySelectorAll('input:checked'), input => input.value);
       render(allTasks);
     });
     document.getElementById('clearTags')?.addEventListener('click', () => { selectedTags = []; render(allTasks); });
-    sort?.addEventListener('change', () => { selectedSort = sort.value; persistSearch(); render(allTasks); });
+    sort?.addEventListener('change', event => {
+      selectedSort = event.target.value;
+      syncChoice(sort, 'sortValue', selectedSort);
+      persistSearch();
+      render(allTasks);
+    });
 
     function visibleForReorder() {
       let pattern;
@@ -2378,10 +2468,16 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
       tagSummary?.setAttribute('aria-label', 'Tags' + (selectedTags.length ? ', ' + selectedTags.length + ' selected' : ''));
       const signature = JSON.stringify(entries);
       if (signature !== tagOptionsSignature) {
+        const focused = document.activeElement;
+        const focusedTag = tagFilter.contains(focused) ? focused.value : undefined;
         tagFilter.innerHTML = entries.length ? entries
-          .map(([value, label]) => '<label><input type="checkbox" value="' + escapeHtml(value) + '"><span title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</span></label>')
+          .map(([value, label]) => '<label class="dropdown-option"><input type="checkbox" value="' + escapeHtml(value) + '"><span title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</span></label>')
           .join('') : '<span class="no-tags">No tags available</span>';
         tagOptionsSignature = signature;
+        if (focusedTag !== undefined) {
+          const inputs = Array.from(tagFilter.querySelectorAll('input'));
+          (inputs.find(input => input.value === focusedTag) || inputs[0] || document.getElementById('clearTags'))?.focus();
+        }
       }
       tagFilter.querySelectorAll('input').forEach(input => { input.checked = selectedTags.includes(input.value); });
     }

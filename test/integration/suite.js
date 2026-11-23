@@ -59,16 +59,17 @@ function createWebviewHarness(board) {
   };
 }
 
-function createEmbeddedWebviewHarness(html) {
+function createEmbeddedWebviewHarness(html, initialState) {
   const listeners = new Map();
   const documentListeners = new Map();
   const elements = new Map();
   const postedMessages = [];
+  let webviewState = initialState;
 
   class FakeElement {
     constructor(id) {
       this.id = id;
-      this.hidden = id === 'tagPopover';
+      this.hidden = id.endsWith('Popover');
       this.value = '';
       this.dataset = {};
       this.style = { setProperty() {} };
@@ -84,6 +85,15 @@ function createEmbeddedWebviewHarness(html) {
     removeAttribute(name) { this.attributes.delete(name); }
     replaceChildren(...children) { this.children = children; }
     querySelector(selector) {
+      const choice = /^input\[value="([^"]+)"\]$/.exec(selector);
+      if (choice) return this.choices?.get(choice[1]) ?? null;
+      const panelGroup = { filterPopover: 'filter', sortPopover: 'sort', tagPopover: 'tagFilter' }[this.id];
+      if (panelGroup) {
+        const group = element(panelGroup);
+        const inputs = group.choices ? [...group.choices.values()] : group.querySelectorAll('input');
+        if (selector.startsWith('input:checked')) return inputs.find(input => input.checked) ?? null;
+        return inputs[0] ?? element('clearTags');
+      }
       if (selector === '.inline-alert') return this.children.find(child => child.className === 'inline-alert');
       if (selector === 'button') return new FakeElement('discoveryRetry');
       return null;
@@ -93,12 +103,18 @@ function createEmbeddedWebviewHarness(html) {
       if (this.tagMarkup !== this.innerHTML) {
         this.tagMarkup = this.innerHTML;
         this.tagInputs = Array.from(this.innerHTML.matchAll(/<input type="checkbox" value="([^"]*)">/g), match => ({
-          value: match[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"'), checked: false
+          id: 'tagOption',
+          value: match[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"'), checked: false, focus() { this.focused = true; }
         }));
       }
       return selector === 'input:checked' ? this.tagInputs.filter(input => input.checked) : this.tagInputs;
     }
-    contains(target) { return this === target || (this.id === 'tagPicker' && ['tagSummary', 'tagPopover', 'tagFilter', 'clearTags'].includes(target?.id)); }
+    contains(target) {
+      if (this === target) return true;
+      const suffix = this.id.endsWith('Picker') ? this.id.slice(0, -'Picker'.length) : '';
+      return Boolean(suffix && target?.id.startsWith(suffix)) ||
+        (this.id === 'tagPicker' && target?.id === 'clearTags');
+    }
     focus() { this.focused = true; }
   }
 
@@ -106,10 +122,29 @@ function createEmbeddedWebviewHarness(html) {
     if (!elements.has(id)) elements.set(id, new FakeElement(id));
     return elements.get(id);
   };
+  for (const group of ['filter', 'sort']) {
+    element(group).choices = new Map(Array.from(html.matchAll(
+      new RegExp('<input type="radio" name="' + group + '" value="([^"]+)"( checked)?><span>([^<]+)</span>', 'g')
+    ), ([, value, checked, label]) => [value, {
+      id: group + 'Option', value, checked: Boolean(checked),
+      nextElementSibling: { textContent: label },
+      matches: selector => selector === 'input[type="radio"]',
+      focus() { this.focused = true; }
+    }]));
+  }
+  function setChoice(group, value) {
+    const control = element(group);
+    control.choices.forEach(choice => { choice.checked = choice.value === value; });
+    control.listeners.get('change')?.({ target: control.choices.get(value) });
+  }
   const scriptMatch = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);
   assert.ok(scriptMatch, 'The webview must contain its executable script.');
   const context = {
-    acquireVsCodeApi: () => ({ postMessage: message => postedMessages.push(message) }),
+    acquireVsCodeApi: () => ({
+      postMessage: message => postedMessages.push(message),
+      getState: () => webviewState,
+      setState: state => { webviewState = state; }
+    }),
     document: {
       activeElement: null,
       getElementById: element,
@@ -141,8 +176,10 @@ function createEmbeddedWebviewHarness(html) {
     regexToggle: element('regexToggle'),
     searchError: element('searchError'),
     sort: element('sort'),
-    setSort(value) { const sort = element('sort'); sort.value = value; sort.listeners.get('change')?.(); },
-    setFilter(value) { const filter = element('filter'); filter.value = value; filter.listeners.get('change')?.(); },
+    setSort(value) { setChoice('sort', value); },
+    setFilter(value) { setChoice('filter', value); },
+    dropdown: element,
+    getState: () => webviewState,
     warningRegion: element('warning'),
     setSearch(value) { const search = element('search'); search.value = value; search.listeners.get('input')?.(); },
     toggleRegex() { element('regexToggle').listeners.get('click')?.(); },
@@ -402,11 +439,14 @@ async function run() {
   const searchControls = webviewHarness.html.match(/<div class="search-wrap">([^]*?)<\/div>/)[1];
   assert.deepStrictEqual(searchControls.match(/<(?:input|button)\b[^>]*>/g).map(control => control.match(/\bid="([^"]+)"/)?.[1]), ['search', 'regexToggle']);
   assert.doesNotMatch(webviewHarness.html, /::-webkit-search-cancel-button/);
-  assert.match(webviewHarness.html, /\.tag-popover \{ position: absolute; z-index: 40;/);
-  assert.match(webviewHarness.html, /\.tag-popover\[hidden\] \{ display: none;/);
-  assert.match(webviewHarness.html, /#tagFilter \{ display: flex; flex-direction: column; max-height: 140px; overflow-y: auto;/);
-  assert.match(webviewHarness.html, /#tagFilter label \{[^}]*height: 28px; min-height: 28px;/);
-  assert.match(webviewHarness.html, /id="tagSummary"[^>]*>Tags<span/);
+  assert.match(webviewHarness.html, /\.dropdown-panel \{ position: absolute; z-index: 40;/);
+  assert.match(webviewHarness.html, /\.dropdown-panel\[hidden\] \{ display: none;/);
+  assert.match(webviewHarness.html, /\.dropdown-options \{[^}]*overflow-y: auto;/);
+  for (const id of ['filter', 'tag', 'sort']) {
+    assert.match(webviewHarness.html, new RegExp('id="' + id + 'Summary" class="dropdown-trigger"[^>]+aria-controls="' + id + 'Popover"'));
+    assert.match(webviewHarness.html, new RegExp('id="' + id + 'Popover" class="dropdown-panel" role="dialog"[^>]+hidden'));
+  }
+  assert.match(webviewHarness.html, /id="tagSummary"[^>]*><span class="dropdown-value">Tags<\/span>/);
   assert.doesNotMatch(webviewHarness.html, /Tags \(all required\)/);
   assert.doesNotMatch(webviewHarness.html, /resetView|Reset search and filters/);
   for (const action of ['run', 'stop', 'restart', 'edit']) {
@@ -497,7 +537,21 @@ async function run() {
   embeddedWebview.setSort('custom');
   assert.ok(embeddedWebview.list.innerHTML.indexOf('Untagged task') < embeddedWebview.list.innerHTML.indexOf('Validated task'),
     'Custom sort uses the saved logical task order.');
+  assert.equal(embeddedWebview.dropdown('sortValue').textContent, 'Sort: custom (drag)');
+  const restoredSort = createEmbeddedWebviewHarness(html, embeddedWebview.getState());
+  assert.equal(restoredSort.dropdown('sortValue').textContent, 'Sort: custom (drag)', 'Restoring the webview also restores the dropdown value.');
   embeddedWebview.setSort('name');
+  const filterTrigger = embeddedWebview.dropdown('filterSummary');
+  const filterPanel = embeddedWebview.dropdown('filterPopover');
+  filterTrigger.listeners.get('click')();
+  assert.equal(filterPanel.hidden, false);
+  assert.equal(embeddedWebview.dropdown('filter').choices.get('all').focused, true);
+  embeddedWebview.setFilter('running');
+  assert.equal(embeddedWebview.dropdown('filterValue').textContent, 'Running');
+  filterPanel.listeners.get('keydown')({ key: 'Enter', target: embeddedWebview.dropdown('filter').choices.get('running'), preventDefault() {} });
+  assert.equal(filterPanel.hidden, true);
+  assert.equal(filterTrigger.focused, true);
+  embeddedWebview.setFilter('all');
   assert.match(embeddedWebview.tagFilter.innerHTML, /value="test &amp; smoke"/, 'Tag choices should be populated from task snapshots.');
   assert.equal(embeddedWebview.tagPopover.hidden, true, 'Tag dropdown starts closed.');
   embeddedWebview.toggleTagDropdown();

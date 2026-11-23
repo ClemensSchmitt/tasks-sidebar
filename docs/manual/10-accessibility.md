@@ -8,14 +8,12 @@ The Task Board uses standard focusable controls:
 
 - toolbar buttons;
 - search input;
-- Reset button;
-- Filter select;
-- Sort select;
+- Filter, Tags and Sort dropdown triggers;
 - task-card Run/Stop/Restart/Edit buttons;
 - empty-state Create/Open/Refresh buttons;
 - Retry button.
 
-Use Tab and Shift+Tab to move through controls. Standard browser/VS Code webview behavior applies for Enter/Space activation and native select interaction.
+Use Tab and Shift+Tab to move through controls. Enter and Space activate the dropdown triggers. See [dropdown keyboard operation](05-search-filter-sort.md#keyboard-interaction) for navigation within each menu.
 
 ## Focus visibility
 
