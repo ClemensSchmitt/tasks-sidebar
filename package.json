@@ -77,15 +77,15 @@
         "command": "tasksSidebar.toggleExternalTasks",
         "title": "Tasks: Toggle external task providers"
       }
-    ]
-  },
-  "configuration": {
-    "title": "Tasks Sidebar",
-    "properties": {
-      "tasksSidebar.includeExternalTasks": {
-        "type": "boolean",
-        "default": false,
-        "description": "Include npm, extension and other external task providers in the sidebar. Workspace and Tasks Sidebar global tasks are always shown."
+    ],
+    "configuration": {
+      "title": "Tasks Sidebar",
+      "properties": {
+        "tasksSidebar.includeExternalTasks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include npm, extension and other external task providers in the sidebar. Workspace and Tasks Sidebar global tasks are always shown."
+        }
       }
     }
   },
