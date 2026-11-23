@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here. Entries under **Unreleased** desc
 
 ## Unreleased
 
+## 0.1.2
+
+- Define account-wide shell and process tasks in a shared `tasks.json`. Open it with **Tasks: Open Global Tasks** or choose **Global (user)** when creating a task. Global tasks appear in local VS Code windows, including windows without an open folder (#103).
+- Use a consistent dropdown design for Filter, Tags, and Sort, with keyboard navigation and visible focus in light, dark, and high-contrast themes (#100).
+
 ## 0.1.1
 
 - Refresh the README with screenshots and a copyable tasks.json demo.
