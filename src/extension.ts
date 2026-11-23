@@ -690,13 +690,16 @@ export class TaskBoard {
       }
       const updated = appendShellTask(original, label, command, target.workspaceScoped ? 'workspace' : 'folder');
       if (exists && document) {
+        // A one-line JSONC file has no newline to infer. Match the editor's
+        // EOL before comparing the saved buffer, including CRLF on Windows.
+        const editorContents = document.eol === vscode.EndOfLine.CRLF ? updated.replace(/\r?\n/g, '\r\n') : updated;
         const editor = await vscode.window.showTextDocument(document);
         if (document.isDirty || document.version !== version) throw new Error('The file changed during task creation. Retry using its latest contents.');
         const applied = await editor.edit(builder => builder.replace(
-          new vscode.Range(document!.positionAt(0), document!.positionAt(original.length)), updated
+          new vscode.Range(document!.positionAt(0), document!.positionAt(original.length)), editorContents
         ));
         if (!applied) throw new Error('The editor rejected the change. Retry using the latest file contents.');
-        if (document.version !== version! + 1 || document.getText() !== updated) {
+        if (document.version !== version! + 1 || document.getText() !== editorContents) {
           throw new Error('The file changed during task creation. Review the unsaved changes and retry.');
         }
         if (!await document.save()) throw new Error('The file could not be saved. Check for another edit or a permissions issue, then retry.');

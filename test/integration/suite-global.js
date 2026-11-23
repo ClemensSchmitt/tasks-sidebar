@@ -136,10 +136,18 @@ async function testGlobalTasks({ execute = false } = {}) {
     }
     async function createGlobalTask(label) {
       const choices = [label, 'echo created'];
-      await board.createTask({
-        showQuickPick() { assert.fail('An empty window has only the global destination.'); },
-        showInputBox: async () => choices.shift()
-      });
+      const errors = [];
+      const reportError = board.reportError;
+      board.reportError = (message, error) => errors.push(`${message} ${error?.message ?? ''}`);
+      try {
+        await board.createTask({
+          showQuickPick() { assert.fail('An empty window has only the global destination.'); },
+          showInputBox: async () => choices.shift()
+        });
+      } finally {
+        board.reportError = reportError;
+      }
+      assert.deepEqual(errors, []);
       const created = JSON.parse(await fs.readFile(globalPath, 'utf8')).tasks;
       assert.ok(created.some(task => task.label === label), 'The global file must contain the saved definition.');
     }
@@ -181,7 +189,9 @@ async function testGlobalTasks({ execute = false } = {}) {
     await createGlobalTask('Created global task');
     await waitFor(() => globals().some(task => task.name === 'Created global task'), 'task created after external file deletion');
     await fs.unlink(globalPath);
-    await waitFor(() => globals().length === 0, 'created task file removal');
+    // Creation and deletion can both occur between file watcher samples.
+    await board.refresh();
+    assert.equal(globals().length, 0);
     await vscode.commands.executeCommand('tasksSidebar.openGlobalTasks');
     assert.deepEqual(JSON.parse(await fs.readFile(globalPath, 'utf8')).tasks, []);
   } finally {

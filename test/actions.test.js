@@ -105,7 +105,7 @@ test('Edit rejects external tasks, missing/ambiguous definitions and read failur
 });
 
 
-function creationHarness({ saved = true, roots = 2, scheme = 'file', text = saved && scheme !== 'untitled' ? '{"folders":[],"tasks":{"version":"2.0.0","tasks":[]}}' : '{"version":"2.0.0","tasks":[]}', missing = false, dirty = false, race = false, raceAfterEdit = false, save = true } = {}) {
+function creationHarness({ saved = true, roots = 2, scheme = 'file', eol = 1, text = saved && scheme !== 'untitled' ? '{"folders":[],"tasks":{"version":"2.0.0","tasks":[]}}' : '{"version":"2.0.0","tasks":[]}', missing = false, dirty = false, race = false, raceAfterEdit = false, save = true } = {}) {
   const uri = value => ({ scheme: value.split(':')[0], toString: () => value });
   const workspaceUri = uri(scheme + ':///workspace/project.code-workspace');
   const folders = Array.from({ length: roots }, (_, index) => ({ name: 'repo-' + index, uri: uri('file:///workspace/repo-' + index) }));
@@ -113,7 +113,7 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
   const documents = new Map();
   const createDocument = target => {
     const doc = {
-      uri: target, version: 1, isDirty: dirty, text,
+      uri: target, version: 1, isDirty: dirty, text, eol,
       getText: () => doc.text,
       positionAt: offset => ({ offset }),
       save: async () => { if (save) { calls.writes++; doc.isDirty = false; } return save; }
@@ -125,6 +125,7 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
   class FileSystemError extends Error { constructor(code) { super(code); this.code = code; } }
   const vscode = {
     TaskScope: { Workspace: 2 },
+    EndOfLine: { LF: 1, CRLF: 2 },
     Uri: { joinPath: (base, ...parts) => uri(base.toString() + '/' + parts.join('/')) },
     FileSystemError,
     Range: class { constructor(start, end) { this.start = start; this.end = end; } },
@@ -143,7 +144,11 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
         calls.selections.push(options?.selection);
         if (race) { doc.version++; doc.isDirty = true; }
         return { revealRange() {}, async edit(callback) {
-          callback({ replace(_range, value) { doc.text = value; doc.version++; doc.isDirty = true; } });
+          callback({ replace(_range, value) {
+            doc.text = eol === 2 ? value.replace(/\r?\n/g, '\r\n') : value;
+            doc.version++;
+            doc.isDirty = true;
+          } });
           if (raceAfterEdit) { doc.text += '\n// user edit'; doc.version++; }
           return true;
         } };
@@ -354,7 +359,7 @@ test('global commands resolve folder variables only with unique context and reso
 });
 
 test('global creation in an empty window appends to the shared file and preserves comments', async () => {
-  const h = creationHarness({ roots: 0, saved: false, missing: true });
+  const h = creationHarness({ roots: 0, saved: false, missing: true, eol: 2 });
   const location = 'file:///home/alice/.vscode/extensions/tasksidebar/tasks.json';
   h.board.globalUri = { toString: () => location };
   h.board.createGlobalTaskFile = async (target, value) => {
@@ -364,10 +369,12 @@ test('global creation in an empty window appends to the shared file and preserve
   };
   await h.board.createTask(h.ui());
   assert.equal(runtime.parseJsonc(h.documents.get(location).text).tasks[0].label, 'new task');
-  h.documents.get(location).text = h.documents.get(location).text.replace('"tasks":', '// keep this comment\n"tasks":');
+  h.documents.get(location).text = JSON.stringify(runtime.parseJsonc(h.documents.get(location).text))
+    .replace('"tasks":', '/* keep this comment */ "tasks":');
   await h.board.createTask(h.ui(undefined, ['another', 'echo another']));
-  assert.match(h.documents.get(location).text, /\/\/ keep this comment/);
+  assert.match(h.documents.get(location).text, /keep this comment/);
   assert.deepEqual(runtime.parseJsonc(h.documents.get(location).text).tasks.map(task => task.label), ['new task', 'another']);
+  assert.match(h.documents.get(location).text, /\r\n/);
   await h.board.createTask(h.ui());
   assert.equal(h.calls.writes, 2);
   assert.match(h.calls.errors[0], /already uses that label/);
