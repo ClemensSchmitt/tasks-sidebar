@@ -1,7 +1,7 @@
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs/promises');
-const { fixture } = require('./global-fixture.js');
+const { fixture, testHomeVariable } = require('./global-fixture.js');
 const { runTests } = require('@vscode/test-electron');
 
 const common = {
@@ -31,7 +31,7 @@ async function run() {
       console.log(`Launching Extension Host suite ${suite}`);
       await runTests({
         ...common,
-        extensionTestsEnv: { TASKSIDEBAR_TEST_PROFILE: home },
+        extensionTestsEnv: { [testHomeVariable]: home },
         extensionTestsPath: path.resolve(__dirname, suite),
         launchArgs: [
           ...(target ? [path.resolve(__dirname, target)] : ['--new-window']),

@@ -4,11 +4,11 @@ const os = require('node:os');
 const fs = require('node:fs/promises');
 const vscode = require('vscode');
 const { TaskBoard, TaskBoardView } = require('../../out/extension.js');
-const { duplicateLabel, fixture } = require('./global-fixture.js');
+const { duplicateLabel, fixture, testHomeVariable } = require('./global-fixture.js');
 const source = 'Global · Tasks Sidebar';
 
 function useTestHome() {
-  const home = process.env.TASKS_SIDEBAR_TEST_PROFILE;
+  const home = process.env[testHomeVariable];
   assert.ok(home, 'An isolated home must be provided by the integration launcher.');
   // Set this in the Extension Host after Electron and its task service start.
   process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'] = home;
@@ -25,7 +25,7 @@ async function waitFor(read, description) {
 }
 
 async function testGlobalTasks({ execute = false } = {}) {
-  const home = process.env.TASKS_SIDEBAR_TEST_PROFILE;
+  const home = process.env[testHomeVariable];
   assert.equal(os.homedir(), home, 'Integration tests must use the isolated, redirected home.');
   const globalPath = path.join(home, '.vscode', 'extensions', 'tasksidebar', 'tasks.json');
   const uri = vscode.Uri.file(globalPath).toString();

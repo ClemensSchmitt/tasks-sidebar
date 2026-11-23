@@ -1,3 +1,4 @@
+const testHomeVariable = 'TASKS_SIDEBAR_TEST_PROFILE';
 const duplicateLabel = 'Tasks Sidebar integration task';
 
 const fixture = {
@@ -19,4 +20,4 @@ const fixture = {
 };
 fixture.tasks.push(fixture.tasks[0]);
 
-module.exports = { duplicateLabel, fixture };
+module.exports = { duplicateLabel, fixture, testHomeVariable };
