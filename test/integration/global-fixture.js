@@ -10,8 +10,10 @@ const fixture = {
     },
     {
       label: 'Global shell integration task', type: 'shell',
-      command: 'node',
-      args: ['-e', 'setTimeout(() => require("node:fs").writeFileSync("shell-result.txt", "ok"), 750)'],
+      command: 'node shell-fixture.js',
+      linux: { options: { shell: { executable: '/bin/sh', args: ['-c'] } } },
+      osx: { options: { shell: { executable: '/bin/sh', args: ['-c'] } } },
+      windows: { options: { shell: { executable: '${env:ComSpec}', args: ['/d', '/c'] } } },
       problemMatcher: []
     },
     {

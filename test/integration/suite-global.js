@@ -39,12 +39,16 @@ async function testGlobalTasks({ execute = false } = {}) {
   const view = new TaskBoardView(extension.extensionUri, 'integration', 'local', board);
   board.attachView(view);
   const nativeEvents = [];
+  const terminalExits = [];
   const record = (kind, event) => {
     if (event.execution.task.source !== source) return;
     nativeEvents.push({ kind, name: event.execution.task.name, exitCode: event.exitCode });
   };
   const subscriptions = [
     board.watchGlobalTasks(),
+    vscode.window.onDidCloseTerminal(terminal => terminalExits.push({
+      name: terminal.name, exitStatus: terminal.exitStatus
+    })),
     vscode.tasks.onDidStartTask(event => { record('task-start', event); board.started(event.execution); }),
     vscode.tasks.onDidStartTaskProcess(event => { record('process-start', event); board.processStarted(event.execution); }),
     vscode.tasks.onDidEndTaskProcess(event => { record('process-end', event); board.processEnded(event.execution, event.exitCode); }),
@@ -174,7 +178,7 @@ async function testGlobalTasks({ execute = false } = {}) {
         const status = globals().find(task => task.id === id);
         const events = nativeEvents.filter(event => event.name === name);
         const shellOutput = await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8').catch(() => undefined);
-        throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}. Native events: ${JSON.stringify(events)}. Shell output: ${shellOutput}`);
+        throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}. Native events: ${JSON.stringify(events)}. Terminals: ${JSON.stringify(terminalExits)}. Shell output: ${shellOutput}`);
       }
     }
 
