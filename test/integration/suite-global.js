@@ -65,7 +65,8 @@ async function testGlobalTasks({ execute = false } = {}) {
       const status = globals().find(task => task.id === id);
       const events = nativeEvents.filter(event => event.name === name);
       const shellOutput = await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8').catch(() => undefined);
-      throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}. Native events: ${JSON.stringify(events)}. Terminals: ${JSON.stringify(terminalExits)}. Shell output: ${shellOutput}`);
+      const cwdOutput = await fs.readFile(path.join(home, 'cwd-result.json'), 'utf8').catch(() => undefined);
+      throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}. Native events: ${JSON.stringify(events)}. Terminals: ${JSON.stringify(terminalExits)}. Shell cwd: ${shellOutput}. Process cwd: ${cwdOutput}`);
     }
   }
 
@@ -186,7 +187,11 @@ async function testGlobalTasks({ execute = false } = {}) {
     await createGlobalTask('Append to existing global file');
     await runSuccessfully('Global shell integration task');
     await runSuccessfully('Global cwd integration task');
-    assert.equal(await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8'), await fs.realpath(process.env[testCwdVariable]));
+    const normalizePath = value => process.platform === 'win32' ? value.toLowerCase() : value;
+    assert.equal(
+      normalizePath(await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8')),
+      normalizePath(await fs.realpath(process.env[testCwdVariable]))
+    );
     const { id } = duplicate[0];
     const startedProcesses = new Set();
     subscriptions.push(vscode.tasks.onDidStartTaskProcess(event => {

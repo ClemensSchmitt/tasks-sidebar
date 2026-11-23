@@ -25,7 +25,15 @@ async function run() {
     await fs.writeFile(path.join(home, 'shell-fixture.js'),
       `const fs = require('node:fs');
 const path = require('node:path');
-setTimeout(() => fs.writeFileSync(path.join(__dirname, 'shell-result.txt'), fs.realpathSync(process.cwd())), 750);
+setTimeout(() => fs.writeFileSync(path.join(__dirname, 'shell-result.txt'), fs.realpathSync.native(process.cwd())), 750);
+`, 'utf8');
+    await fs.writeFile(path.join(home, 'cwd-fixture.js'), `const fs = require('node:fs');
+const path = require('node:path');
+const actual = fs.realpathSync.native(process.cwd());
+const expected = fs.realpathSync.native(process.argv[2]);
+fs.writeFileSync(path.join(__dirname, 'cwd-result.json'), JSON.stringify({ actual, expected }));
+const normalize = value => process.platform === 'win32' ? value.toLowerCase() : value;
+if (normalize(actual) !== normalize(expected)) process.exit(42);
 `, 'utf8');
     // Distinct VS Code processes use one account-level file across all three window contexts.
     for (const [suite, target] of [

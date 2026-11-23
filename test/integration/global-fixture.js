@@ -1,5 +1,6 @@
 const testHomeVariable = 'TASKS_SIDEBAR_TEST_PROFILE';
 const testCwdVariable = 'TASKS_SIDEBAR_TEST_CWD';
+const configHome = '${env:' + testHomeVariable + '}';
 const explicitCwd = '${env:' + testCwdVariable + '}';
 const duplicateLabel = 'Tasks Sidebar integration task';
 
@@ -13,7 +14,7 @@ const fixture = {
     {
       label: 'Global shell integration task', type: 'shell',
       command: 'node',
-      args: ['${env:' + testHomeVariable + '}/shell-fixture.js'],
+      args: [configHome + '/shell-fixture.js'],
       linux: { options: { shell: { executable: '/bin/sh', args: ['-c'] } } },
       osx: { options: { shell: { executable: '/bin/sh', args: ['-c'] } } },
       windows: { options: { shell: { executable: '${env:ComSpec}', args: ['/d', '/c'] } } },
@@ -21,7 +22,7 @@ const fixture = {
     },
     {
       label: 'Global cwd integration task', type: 'process', command: 'node',
-      args: ['-e', 'const real = require("node:fs").realpathSync; if (real(process.cwd()) !== real(process.argv[1])) process.exit(42)', explicitCwd],
+      args: [configHome + '/cwd-fixture.js', explicitCwd],
       options: { cwd: explicitCwd }
     }
   ]
