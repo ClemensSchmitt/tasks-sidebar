@@ -478,10 +478,10 @@ export class TaskBoard {
       return;
     }
     try {
-      if (!label) {
-        await fs.mkdir(dirname(uri.fsPath), { recursive: true });
+      const openDocument = vscode.workspace.textDocuments.find(document => document.uri.toString() === uri.toString());
+      if (!label && !openDocument?.isDirty) {
         try {
-          await fs.writeFile(uri.fsPath, EMPTY_TASK_FILE, { flag: 'wx' });
+          await this.createGlobalTaskFile(uri, EMPTY_TASK_FILE);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         }
@@ -512,6 +512,12 @@ export class TaskBoard {
     } catch (error) {
       this.reportError(`Global tasks could not be opened in ${uri.toString()}. Check the file and its permissions.`, error);
     }
+  }
+
+  private async createGlobalTaskFile(uri: vscode.Uri, contents: string): Promise<void> {
+    await fs.mkdir(dirname(uri.fsPath), { recursive: true });
+    // Reserve the final path atomically, including across independent VS Code windows.
+    await fs.writeFile(uri.fsPath, contents, { flag: 'wx' });
   }
 
   async openTasksJson(id?: string): Promise<void> {
@@ -662,19 +668,20 @@ export class TaskBoard {
     try {
       // Use the editor buffer, and refuse to save unrelated unsaved user changes.
       let document = vscode.workspace.textDocuments.find(item => item.uri.toString() === uri.toString());
-      if (!document) {
-        let exists = true;
+      let exists = Boolean(document);
+      if (target.global || !document) {
         try {
           await vscode.workspace.fs.stat(uri);
+          exists = true;
         } catch (error) {
           if (target.workspaceScoped || !(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') throw error;
           exists = false;
         }
-        if (exists) document = await vscode.workspace.openTextDocument(uri);
+        if (exists && !document) document = await vscode.workspace.openTextDocument(uri);
       }
       if (document?.isDirty) throw new Error('Save or revert the existing unsaved changes, then retry.');
       const version = document?.version;
-      const original = document?.getText() ?? EMPTY_TASK_FILE;
+      const original = exists ? document?.getText() ?? EMPTY_TASK_FILE : EMPTY_TASK_FILE;
       if (target.global) {
         const { tasks } = parseTaskDocument(original) as { tasks?: unknown };
         if (Array.isArray(tasks) && tasks.some(item => item?.label === label.trim())) {
@@ -682,7 +689,7 @@ export class TaskBoard {
         }
       }
       const updated = appendShellTask(original, label, command, target.workspaceScoped ? 'workspace' : 'folder');
-      if (document) {
+      if (exists && document) {
         const editor = await vscode.window.showTextDocument(document);
         if (document.isDirty || document.version !== version) throw new Error('The file changed during task creation. Retry using its latest contents.');
         const applied = await editor.edit(builder => builder.replace(
@@ -692,7 +699,10 @@ export class TaskBoard {
         if (document.version !== version! + 1 || document.getText() !== updated) {
           throw new Error('The file changed during task creation. Review the unsaved changes and retry.');
         }
-        if (!await document.save()) throw new Error('The file could not be saved. Check permissions and retry.');
+        if (!await document.save()) throw new Error('The file could not be saved. Check for another edit or a permissions issue, then retry.');
+      } else if (target.global) {
+        await this.createGlobalTaskFile(uri, updated);
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
       } else {
         await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(uri, '..'));
         const edit = new vscode.WorkspaceEdit();

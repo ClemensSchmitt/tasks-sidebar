@@ -134,6 +134,17 @@ async function testGlobalTasks({ execute = false } = {}) {
       }
       return;
     }
+    async function createGlobalTask(label) {
+      const choices = [label, 'echo created'];
+      await board.createTask({
+        showQuickPick() { assert.fail('An empty window has only the global destination.'); },
+        showInputBox: async () => choices.shift()
+      });
+      const created = JSON.parse(await fs.readFile(globalPath, 'utf8')).tasks;
+      assert.ok(created.some(task => task.label === label), 'The global file must contain the saved definition.');
+    }
+    await vscode.commands.executeCommand('tasksSidebar.openGlobalTasks');
+    await createGlobalTask('Append to existing global file');
     for (const name of ['Global shell integration task', 'Global cwd integration task']) {
       const { id } = globals().find(task => task.name === name);
       await board.run(id);
@@ -157,7 +168,7 @@ async function testGlobalTasks({ execute = false } = {}) {
 
     await fs.writeFile(globalPath, '{"version":', 'utf8');
     await waitFor(() => view.pendingWarning?.includes(uri) && view.pendingWarning.includes('Invalid JSONC'), 'malformed file warning');
-    assert.equal(globals().length, 3, 'A malformed save preserves the last good discovery.');
+    assert.equal(globals().length, 4, 'A malformed save preserves the last good discovery.');
 
     await fs.writeFile(globalPath, JSON.stringify({ ...fixture, tasks: fixture.tasks.filter(task => task.label !== duplicateLabel) }), 'utf8');
     await waitFor(() => globals().find(task => task.id === id && task.orphaned && task.isRunning), 'orphaned running task after definition removal');
@@ -167,14 +178,12 @@ async function testGlobalTasks({ execute = false } = {}) {
     await fs.unlink(globalPath);
     await waitFor(() => globals().length === 0 && view.pendingWarning?.includes(uri), 'missing file after removal');
     assert.equal(await fs.stat(globalPath).then(() => true, () => false), false, 'Discovery never recreates a missing file.');
+    await createGlobalTask('Created global task');
+    await waitFor(() => globals().some(task => task.name === 'Created global task'), 'task created after external file deletion');
+    await fs.unlink(globalPath);
+    await waitFor(() => globals().length === 0, 'created task file removal');
     await vscode.commands.executeCommand('tasksSidebar.openGlobalTasks');
     assert.deepEqual(JSON.parse(await fs.readFile(globalPath, 'utf8')).tasks, []);
-    const choices = ['Created global task', 'echo created'];
-    await board.createTask({
-      showQuickPick() { assert.fail('An empty window has only the global destination.'); },
-      showInputBox: async () => choices.shift()
-    });
-    assert.equal(JSON.parse(await fs.readFile(globalPath, 'utf8')).tasks[0].label, 'Created global task');
   } finally {
     subscriptions.forEach(subscription => subscription.dispose());
     for (const execution of vscode.tasks.taskExecutions) {

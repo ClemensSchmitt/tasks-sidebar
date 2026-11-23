@@ -178,7 +178,7 @@ function creationHarness({ saved = true, roots = 2, scheme = 'file', text = save
     async showQuickPick(items) { calls.targets = items; return pick(items); },
     async showInputBox() { calls.input++; return inputs.shift(); }
   });
-  return { board, calls, ui, documents, workspaceUri, vscode };
+  return { board, calls, ui, documents, workspaceUri, vscode, createDocument };
 }
 
 test('task creation offers workspace and folder targets and appends at workspace scope', async () => {
@@ -357,6 +357,11 @@ test('global creation in an empty window appends to the shared file and preserve
   const h = creationHarness({ roots: 0, saved: false, missing: true });
   const location = 'file:///home/alice/.vscode/extensions/tasksidebar/tasks.json';
   h.board.globalUri = { toString: () => location };
+  h.board.createGlobalTaskFile = async (target, value) => {
+    assert.ok(!h.documents.has(target.toString()), 'Global creation must never replace an existing file.');
+    h.createDocument(target).text = value;
+    h.calls.writes++;
+  };
   await h.board.createTask(h.ui());
   assert.equal(runtime.parseJsonc(h.documents.get(location).text).tasks[0].label, 'new task');
   h.documents.get(location).text = h.documents.get(location).text.replace('"tasks":', '// keep this comment\n"tasks":');
