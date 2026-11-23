@@ -45,17 +45,10 @@
     "taskDefinitions": [
       {
         "type": "tasksSidebarGlobal",
-        "required": [
-          "label",
-          "fingerprint"
-        ],
+        "required": ["label", "fingerprint"],
         "properties": {
-          "label": {
-            "type": "string"
-          },
-          "fingerprint": {
-            "type": "string"
-          }
+          "label": { "type": "string" },
+          "fingerprint": { "type": "string" }
         }
       }
     ],
