@@ -228,17 +228,18 @@ A backend refresh can change the set/state of task snapshots, but it does not in
 
 The webview is created with `retainContextWhenHidden: true`, so hiding and showing the view can preserve its in-memory control state.
 
-However, search/filter/sort are not persisted to `workspaceState` or `vscode.setState`. Recreating/reloading the webview restores defaults.
+The webview saves the search text, regex setting, and sort choice with `vscode.setState`. Status and tag filters reset when the webview is recreated.
 
 Backend refresh results are revision-ordered: an older slow refresh cannot overwrite a newer completed refresh.
 
 ## Keyboard interaction
 
-The controls are ordinary keyboard-focusable webview controls:
+Filter, Tags, and Sort use the same 28 px trigger and option rows, padding, border radius, chevron and anchored menu. VS Code theme colors supply the field, menu, hover, selection and focus states. The workspace picker for **Open tasks.json** and the destination picker for **Create task** use VS Code Quick Pick, including its search and keyboard navigation.
 
-- Tab / Shift+Tab move among search, Reset, Filter, Sort, toolbar and card actions;
-- native select controls provide standard keyboard selection behavior;
-- Enter/Space activate buttons according to browser/VS Code webview behavior.
+- Use Tab or Shift+Tab to move between controls. Press Enter or Space on a dropdown trigger to open it. Focus moves to a selected option or the first available control.
+- Filter and Sort use radio buttons. Arrow keys change the selection and immediately update the board. Click an option or press Enter to close the menu.
+- Tags uses checkboxes. Use Tab to move between tags and Space to toggle them. The menu stays open for multiple selections.
+- Escape closes an open menu and returns focus to its trigger. Moving focus or clicking outside also dismisses the menu.
 
 When a rerender replaces task cards, Tasks Sidebar records the focused action/card identity and attempts to restore focus in this order:
 
