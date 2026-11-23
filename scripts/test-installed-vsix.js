@@ -88,10 +88,10 @@ async function main() {
       vscodeExecutablePath: executable,
       extensionDevelopmentPath: path.join(root, 'test', 'installed', 'host'),
       extensionTestsPath: path.join(root, 'test', 'installed', 'suite.js'),
-      extensionTestsEnv: { HOME: testHome, USERPROFILE: testHome },
       launchArgs: [
         fixtureWorkspace,
         ...profileArgs,
+        '--extensionEnvironment=' + JSON.stringify({ HOME: testHome, USERPROFILE: testHome }),
         '--disable-workspace-trust',
         ...(process.platform === 'linux' ? ['--disable-gpu'] : []),
       ],

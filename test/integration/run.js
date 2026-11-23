@@ -22,23 +22,25 @@ async function run() {
     const globalPath = path.join(home, '.vscode', 'extensions', 'tasksidebar', 'tasks.json');
     await fs.mkdir(path.dirname(globalPath), { recursive: true });
     await fs.writeFile(globalPath, JSON.stringify(fixture), 'utf8');
-    const options = {
-      ...common,
-      extensionTestsEnv: { HOME: home, USERPROFILE: home, TASKS_SIDEBAR_TEST_PROFILE: home }
-    };
+    // Redirect only the Extension Host. Electron and the OS keep their real home.
+    const extensionEnvironment = '--extensionEnvironment=' + JSON.stringify({
+      HOME: home, USERPROFILE: home, TASKS_SIDEBAR_TEST_PROFILE: home
+    });
     // Distinct VS Code processes use one account-level file across all three window contexts.
     for (const [suite, target] of [
       ['suite.js', 'workspace'],
       ['suite-multiroot.js', 'multi-root.code-workspace'],
       ['suite-global.js', undefined]
     ]) {
+      console.log(`Launching Extension Host suite ${suite}`);
       await runTests({
-        ...options,
+        ...common,
         extensionTestsPath: path.resolve(__dirname, suite),
         launchArgs: [
           ...(target ? [path.resolve(__dirname, target)] : ['--new-window']),
           '--user-data-dir=' + path.join(home, suite + '-profile'),
           '--extensions-dir=' + path.join(home, '.vscode', 'extensions'),
+          extensionEnvironment,
           ...flags
         ]
       });
