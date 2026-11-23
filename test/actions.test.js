@@ -342,7 +342,7 @@ test('global commands resolve folder variables only with unique context and reso
   const resolved = globalTasks.resolveGlobalExecution(task, context);
   assert.equal(resolved.cwd, 'D:\\Redirected Home\\Alice\\work');
   assert.deepEqual(resolved.args, ['D:\\Work\\second', 'test', 'D:\\Redirected Home\\Alice']);
-  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', problemMatchers: [] }, { ...context, folders: [] }).cwd, context.home);
+  assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', problemMatchers: [] }, { ...context, folders: [] }).cwd, undefined);
   assert.equal(globalTasks.resolveGlobalExecution({ command: 'node', problemMatchers: [], cwd: '${workspaceFolder}' }, {
     ...context, folders: context.folders.slice(0, 1)
   }).cwd, 'D:\\Work\\first');

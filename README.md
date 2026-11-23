@@ -126,7 +126,7 @@ Use VS Code-style JSONC with version `2.0.0`. Shell and process tasks support co
 }
 ```
 
-- The default working directory is your home. Absolute `options.cwd` values work as written. Relative ones are resolved from your home.
+- The default working directory is your home. Absolute `options.cwd` values work as written. Relative ones are resolved from your home. Where VS Code restricts terminals in empty windows to the VS Code home directory, open a folder before using a different working directory.
 - `${workspaceFolder}` and `${workspaceFolderBasename}` require a single local folder. In a multi-root window, use a unique folder name such as `${workspaceFolder:repo-a}`. For an empty window, use `${userHome}` or an absolute path. The file also supports `${env:NAME}` and `${pathSeparator}`.
 - Global tasks run when explicitly started in a trusted window. Named problem matchers require a single local workspace folder because VS Code may resolve their paths against it. Compound dependencies, inline problem matchers, and editor-, command- and input-dependent variables are unavailable.
 - **Tasks: Open User Tasks** is VS Code's own user-task command and uses a separate file. **Tasks: Toggle external task providers** controls those and other external providers. Tasks Sidebar global tasks remain visible with that setting off.

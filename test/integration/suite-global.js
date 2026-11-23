@@ -4,13 +4,14 @@ const os = require('node:os');
 const fs = require('node:fs/promises');
 const vscode = require('vscode');
 const { TaskBoard, TaskBoardView } = require('../../out/extension.js');
-const { duplicateLabel, fixture, testHomeVariable } = require('./global-fixture.js');
+const { duplicateLabel, fixture, testHomeVariable, testCwdVariable } = require('./global-fixture.js');
 const source = 'Global · Tasks Sidebar';
 
 function useTestHome() {
   const home = process.env[testHomeVariable];
   assert.ok(home, 'An isolated home must be provided by the integration launcher.');
-  // Set this in the Extension Host after Electron and its task service start.
+  // Keep native terminal home and test configuration home distinct.
+  process.env[testCwdVariable] = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
   process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'] = home;
 }
 
@@ -55,6 +56,19 @@ async function testGlobalTasks({ execute = false } = {}) {
     vscode.tasks.onDidEndTask(event => { record('task-end', event); board.ended(event.execution); })
   ];
   const globals = () => view.pending.filter(task => task.source === source);
+  async function runSuccessfully(name) {
+    const { id } = globals().find(task => task.name === name);
+    await board.run(id);
+    try {
+      await waitFor(() => globals().find(task => task.id === id && task.runCount === 1 && task.lastOutcome === 'success'), name + ' successful history');
+    } catch (error) {
+      const status = globals().find(task => task.id === id);
+      const events = nativeEvents.filter(event => event.name === name);
+      const shellOutput = await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8').catch(() => undefined);
+      throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}. Native events: ${JSON.stringify(events)}. Terminals: ${JSON.stringify(terminalExits)}. Shell output: ${shellOutput}`);
+    }
+  }
+
   try {
     if (vscode.workspace.workspaceFolders?.length) {
       const fetchTasks = board.fetchTasksWithProviderFallback.bind(board);
@@ -108,6 +122,7 @@ async function testGlobalTasks({ execute = false } = {}) {
     // The same discovery/edit checks run in three independently launched windows.
     if (!execute) {
       if (vscode.workspace.workspaceFolders?.length === 1) {
+        await runSuccessfully('Global cwd integration task');
         const workspaceId = workspaceTasks[0].id;
         await board.run(workspaceId);
         const execution = await waitFor(() => view.pending.find(task => task.id === workspaceId && task.isRunning),
@@ -169,20 +184,9 @@ async function testGlobalTasks({ execute = false } = {}) {
     }
     await board.openGlobalTasks();
     await createGlobalTask('Append to existing global file');
-    for (const name of ['Global shell integration task', 'Global cwd integration task']) {
-      const { id } = globals().find(task => task.name === name);
-      await board.run(id);
-      try {
-        await waitFor(() => globals().find(task => task.id === id && task.runCount === 1 && task.lastOutcome === 'success'), name + ' successful history');
-      } catch (error) {
-        const status = globals().find(task => task.id === id);
-        const events = nativeEvents.filter(event => event.name === name);
-        const shellOutput = await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8').catch(() => undefined);
-        throw new Error(`${error.message}. Latest card: ${JSON.stringify(status)}. Native events: ${JSON.stringify(events)}. Terminals: ${JSON.stringify(terminalExits)}. Shell output: ${shellOutput}`);
-      }
-    }
-
-    assert.equal(await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8'), 'ok');
+    await runSuccessfully('Global shell integration task');
+    await runSuccessfully('Global cwd integration task');
+    assert.equal(await fs.readFile(path.join(home, 'shell-result.txt'), 'utf8'), await fs.realpath(process.env[testCwdVariable]));
     const { id } = duplicate[0];
     const startedProcesses = new Set();
     subscriptions.push(vscode.tasks.onDidStartTaskProcess(event => {
