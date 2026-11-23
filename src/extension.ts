@@ -1736,7 +1736,7 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     #searchError { color: var(--vscode-inputValidation-errorForeground, var(--danger)); font-size: 0.85em; padding: 0 3px; }
     #searchError:empty { display: none; }
     .search { min-width: 0; padding: 7px 9px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 72%, transparent); font: inherit; }
-    .view-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; grid-column: 1 / -1; }
+    .view-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; grid-column: 1 / -1; container-type: inline-size; position: relative; z-index: 2; }
     #sortPicker { grid-column: 1 / -1; }
     .dropdown {
       --dropdown-ink: var(--vscode-dropdown-foreground, var(--ink));
@@ -1755,14 +1755,15 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     .dropdown-chevron { flex: none; width: 6px; height: 6px; margin: 0 2px 3px; border: solid currentColor; border-width: 0 1px 1px 0; transform: rotate(45deg); }
     .dropdown-trigger[aria-expanded="true"] .dropdown-chevron { transform: rotate(225deg); margin-block: 3px 0; }
     /* Anchored panels use the same visual treatment and stay out of the grid layout. */
-    .dropdown-panel { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; width: max(100%, min(240px, calc(100vw - 24px))); max-width: calc(100vw - 24px); padding: 6px; border: 1px solid var(--dropdown-border); border-radius: var(--dropdown-radius); color: var(--dropdown-ink); background: var(--vscode-dropdown-listBackground, var(--dropdown-bg)); box-shadow: 0 8px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .25)); }
+    .dropdown-panel { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; width: max(100%, min(240px, 100cqw)); max-width: 100cqw; padding: 6px; border: 1px solid var(--dropdown-border); border-radius: var(--dropdown-radius); color: var(--dropdown-ink); background: var(--vscode-dropdown-listBackground, var(--dropdown-bg)); box-shadow: 0 8px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .25)); }
     #tagPopover { right: 0; left: auto; }
     .dropdown-panel[hidden] { display: none; }
     .dropdown-options { display: flex; flex-direction: column; max-height: calc(var(--dropdown-row-height) * 5); overflow-y: auto; overscroll-behavior: contain; }
     .dropdown-option { display: flex; align-items: center; gap: 6px; height: var(--dropdown-row-height); min-height: var(--dropdown-row-height); padding: 0 6px; border-radius: 4px; cursor: pointer; }
     .dropdown-option:hover:not(:has(input:disabled)) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-list-hoverForeground, var(--dropdown-ink)); }
     .dropdown-option:has(input:checked) { background: var(--vscode-list-activeSelectionBackground, var(--vscode-inputOption-activeBackground, var(--dropdown-bg))); color: var(--vscode-list-activeSelectionForeground, var(--dropdown-ink)); }
-    .dropdown-option:has(input:focus-visible) { outline: 1px solid var(--focus); outline-offset: -1px; }
+    .dropdown-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+    .dropdown-option:has(input:checked:focus-visible) { outline-color: var(--vscode-list-focusAndSelectionOutline, currentColor); }
     .dropdown-option input { flex: none; margin: 0; }
     .dropdown-option input:focus-visible { outline: none; }
     .dropdown-options .no-tags { min-height: var(--dropdown-row-height); padding: 6px; color: var(--muted); }
@@ -1976,14 +1977,11 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
         trigger.setAttribute('aria-expanded', 'true');
         (panel.querySelector('input:checked:not(:disabled)') || panel.querySelector('input:not(:disabled), button:not(:disabled)'))?.focus();
       });
-      picker.addEventListener('focusout', event => {
-        if (activeDropdown === dropdown && event.relatedTarget && !picker.contains(event.relatedTarget)) closeDropdown();
-      });
       if (singleChoice) {
         panel.addEventListener('click', event => {
           if (event.detail > 0 && event.target.closest('.dropdown-option')) {
             // Give label activation its native click/change before hiding the radio.
-            requestAnimationFrame(() => { if (activeDropdown === dropdown) closeDropdown(true); });
+            setTimeout(() => { if (activeDropdown === dropdown) closeDropdown(true); }, 0);
           }
         });
         panel.addEventListener('keydown', event => {
@@ -1997,13 +1995,23 @@ export function createTaskBoardHtml(extensionVersion: string, hostLabel: string)
     wireDropdown('filter', true);
     wireDropdown('tag', false);
     wireDropdown('sort', true);
-    document.addEventListener('pointerdown', event => {
+    function closeDropdownFromOutside(event) {
       if (activeDropdown && !activeDropdown.picker.contains(event.target)) closeDropdown();
-    });
+    }
+    document.addEventListener('pointerdown', closeDropdownFromOutside);
+    document.addEventListener('focusin', closeDropdownFromOutside);
+    window.addEventListener('blur', () => closeDropdown());
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && activeDropdown) {
+      const dropdown = activeDropdown;
+      if (!dropdown) return;
+      if (event.key === 'Escape') {
         closeDropdown(true);
         event.preventDefault();
+      } else if (event.key === 'Tab') {
+        // Tab can leave the webview without moving focus to another DOM element.
+        setTimeout(() => {
+          if (activeDropdown === dropdown && !dropdown.picker.contains(document.activeElement)) closeDropdown();
+        }, 0);
       }
     });
 

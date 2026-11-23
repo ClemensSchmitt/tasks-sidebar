@@ -159,6 +159,7 @@ function createEmbeddedWebviewHarness(html, initialState) {
     performance: { now: () => 1000 },
     requestAnimationFrame: () => 1,
     cancelAnimationFrame() {},
+    setTimeout,
     Map, Set, Array, Math, String, Number, JSON, Promise, encodeURIComponent, decodeURIComponent
   };
   new vm.Script(scriptMatch[1], { filename: 'tasks-sidebar-webview.js' }).runInNewContext(context);
@@ -172,6 +173,7 @@ function createEmbeddedWebviewHarness(html, initialState) {
     toggleTagDropdown() { element('tagSummary').listeners.get('click')?.(); },
     pointerDown(target) { documentListeners.get('pointerdown')?.({ target: element(target) }); },
     pressEscape() { documentListeners.get('keydown')?.({ key: 'Escape', preventDefault() {} }); },
+    pressTab() { documentListeners.get('keydown')?.({ key: 'Tab' }); },
     search: element('search'),
     regexToggle: element('regexToggle'),
     searchError: element('searchError'),
@@ -551,7 +553,16 @@ async function run() {
   filterPanel.listeners.get('keydown')({ key: 'Enter', target: embeddedWebview.dropdown('filter').choices.get('running'), preventDefault() {} });
   assert.equal(filterPanel.hidden, true);
   assert.equal(filterTrigger.focused, true);
+  filterTrigger.listeners.get('click')();
+  embeddedWebview.pressTab();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(filterPanel.hidden, true, 'Tab out of the webview dismisses the dropdown.');
+  filterTrigger.listeners.get('click')();
+  filterPanel.listeners.get('click')({ detail: 1, target: { closest: () => true } });
   embeddedWebview.setFilter('all');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(filterPanel.hidden, true, 'Pointer selection dismisses the radio menu after applying the choice.');
+  assert.equal(embeddedWebview.dropdown('filterValue').textContent, 'All tasks');
   assert.match(embeddedWebview.tagFilter.innerHTML, /value="test &amp; smoke"/, 'Tag choices should be populated from task snapshots.');
   assert.equal(embeddedWebview.tagPopover.hidden, true, 'Tag dropdown starts closed.');
   embeddedWebview.toggleTagDropdown();

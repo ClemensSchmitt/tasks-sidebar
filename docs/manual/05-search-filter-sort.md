@@ -228,7 +228,7 @@ A backend refresh can change the set/state of task snapshots, but it does not in
 
 The webview is created with `retainContextWhenHidden: true`, so hiding and showing the view can preserve its in-memory control state.
 
-However, search/filter/sort are not persisted to `workspaceState` or `vscode.setState`. Recreating/reloading the webview restores defaults.
+The webview saves the search text, regex setting, and sort choice with `vscode.setState`. Status and tag filters reset when the webview is recreated.
 
 Backend refresh results are revision-ordered: an older slow refresh cannot overwrite a newer completed refresh.
 
